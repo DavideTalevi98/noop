@@ -460,12 +460,11 @@ private data class Window(
 @Composable
 private fun remember14(days: List<com.noop.data.DailyMetric>): Window =
     androidx.compose.runtime.remember(days) {
-        fun series(pick: (DailyMetric) -> Double?): List<Double> {
-            val all = days.mapNotNull(pick)
-            if (all.isEmpty()) return emptyList()
-            val windowed = all.takeLast(14)
-            return if (windowed.size >= 2) windowed else all
-        }
+        // Trailing 14 CALENDAR days ending today — NOT the last 14 stored rows, which on an old import
+        // were months-old data shown as a "14-day trend" (issue #23). ISO yyyy-MM-dd sorts chronologically.
+        val cutoff = java.time.LocalDate.now().minusDays(13).toString()
+        val recent = days.filter { it.day >= cutoff }
+        fun series(pick: (DailyMetric) -> Double?): List<Double> = recent.mapNotNull(pick)
         Window(
             recovery = series { it.recovery },
             strain = series { it.strain },

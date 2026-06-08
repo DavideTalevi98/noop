@@ -101,7 +101,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // Recompute the illness banner + today's row whenever cached days change.
         viewModelScope.launch {
             recentDays.collect { days ->
-                _today.value = days.lastOrNull()
+                // Only treat a row as "today" if its date is the phone's ACTUAL local calendar day.
+                // Was days.lastOrNull() — the newest stored row regardless of date — so after importing
+                // historical data the newest import (e.g. months old) showed as today's synthesis (#23).
+                val todayKey = java.time.LocalDate.now().toString()   // ISO yyyy-MM-dd, local
+                _today.value = days.lastOrNull { it.day == todayKey }
                 _healthAlert.value = IllnessWatch.evaluate(days)
             }
         }

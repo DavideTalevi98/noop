@@ -17,6 +17,19 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 1.11 — Today reflects today, not stale imports
+
+- **Fixed (Mac + Android): the dashboard treated the newest *imported* day as "today."** After a
+  historical WHOOP import, the Today hero, the 14-day sparklines and the Trends W/M/3M windows were all
+  anchored to the newest stored *row* (or `latestDay`) rather than the device's actual calendar date —
+  so a months-old import showed as today's recovery/readiness, and the trend windows showed the last N
+  imported days instead of the last N calendar days. Today now resolves by the real local day key
+  (`yyyy-MM-dd`), and the sparkline/Trends windows are date-anchored to today; older imports stay
+  visible under the wider ranges / All history. No change for the common case (recent contiguous data:
+  last-N-days == last-N-rows) — only stale-import dashboards are corrected (issue #23).
+
+---
+
 ## 1.10 — WHOOP 5/MG bonding on Android + Health Monitor fix
 
 - **Fixed (Android, WHOOP 5/MG): the strap connecting but never bonding.** It wrote `CLIENT_HELLO`

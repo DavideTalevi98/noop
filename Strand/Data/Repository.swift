@@ -22,10 +22,25 @@ final class Repository: ObservableObject {
 
     init(deviceId: String) { self.deviceId = deviceId }
 
-    /// The most recent day with data (treated as "today" for the dashboard hero).
-    var today: DailyMetric? { days.last }
-    /// The trailing 7 days (for the week strip), oldest→newest.
-    var week: [DailyMetric] { Array(days.suffix(7)) }
+    /// Today's row, by the device's ACTUAL local calendar date — NOT just the newest stored row, which
+    /// after a historical import was months-old data shown as today's hero (issue #23). nil if no row
+    /// for today yet (the dashboard then shows its empty/pending state).
+    var today: DailyMetric? {
+        let key = Repository.localDayKey(Date())
+        return days.last(where: { $0.day == key })
+    }
+    /// The trailing 7 CALENDAR days ending today (for the week strip), oldest→newest — not the last 7
+    /// stored rows, which on a stale import were old data. ISO yyyy-MM-dd compares chronologically.
+    var week: [DailyMetric] {
+        let cutoff = Repository.localDayKey(Calendar.current.date(byAdding: .day, value: -6, to: Date()) ?? Date())
+        return days.filter { $0.day >= cutoff }
+    }
+
+    /// `yyyy-MM-dd` in the device's local zone, matching how `DailyMetric.day` is stored.
+    private static let dayKeyFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.locale = Locale(identifier: "en_US_POSIX"); return f
+    }()
+    static func localDayKey(_ date: Date) -> String { dayKeyFormatter.string(from: date) }
 
     private func ensureStore() async -> WhoopStore? {
         if let store { return store }

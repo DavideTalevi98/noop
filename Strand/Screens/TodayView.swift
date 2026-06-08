@@ -359,14 +359,12 @@ struct TodayView: View {
         return chosen.map { $0.value }
     }
 
-    /// Keep only points within `days` of the most recent point (parsing yyyy-MM-dd in UTC).
+    /// Keep only points within the trailing `days` CALENDAR days ending TODAY (the phone's local date).
+    /// Was anchored to the most-recent point, which on a stale import pinned the window to months-old
+    /// data shown as a current trend (issue #23). ISO yyyy-MM-dd compares chronologically.
     private func trailingWindow(_ points: [(day: String, value: Double)], days: Int) -> [(day: String, value: Double)] {
-        guard let lastDay = points.last?.day, let lastDate = Self.dayParser.date(from: lastDay) else { return points }
-        let cutoff = lastDate.addingTimeInterval(-Double(days) * 86_400)
-        return points.filter { p in
-            guard let dt = Self.dayParser.date(from: p.day) else { return false }
-            return dt >= cutoff
-        }
+        let cutoffKey = Repository.localDayKey(Calendar.current.date(byAdding: .day, value: -(days - 1), to: Date()) ?? Date())
+        return points.filter { $0.day >= cutoffKey }
     }
 
     /// Latest value of a loaded sparkline series, formatted — for tiles whose hero

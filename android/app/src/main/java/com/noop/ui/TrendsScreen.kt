@@ -215,8 +215,14 @@ private fun windowValues(
     if (days.isEmpty()) return emptyList()
     val sliced = when (val n = range.days) {
         null -> days
-        // The history is already oldest-first; a trailing N-day window is the last N rows.
-        else -> days.takeLast(n)
+        // Trailing N CALENDAR days ending today — anchored to the phone's date, NOT the last N rows
+        // (which on a stale import made months-old data fill the W/M/3M windows, looking current — #23).
+        // ISO yyyy-MM-dd sorts chronologically. Empty short windows auto-widen via resolveMetric, so old
+        // imports surface under a wider range / All history rather than masquerading as recent.
+        else -> {
+            val cutoff = java.time.LocalDate.now().minusDays((n - 1).toLong()).toString()
+            days.filter { it.day >= cutoff }
+        }
     }
     return sliced.mapNotNull(value)
 }
