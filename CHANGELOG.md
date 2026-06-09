@@ -17,6 +17,22 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 1.56 — Shortcuts on Mac, recovery in the Android notification
+
+- **New (macOS): App Intents / Shortcuts actions — "Buzz Strap" and "Mark a Moment."** New
+  `Strand/System/NOOPAppIntents.swift` exposes both as `AppIntent`s with an `AppShortcutsProvider`, so
+  they're available from Shortcuts.app, Spotlight, and menu-bar/keyboard triggers without opening the
+  window. They reach the live bonded strap via a new `static weak var AppModel.shared` (published in
+  `AppModel.init`) — constructing a fresh `AppModel` from an intent would spin up a second BLEManager +
+  analysis loop and could never buzz. Guarded: a fired intent with NOOP closed throws "open NOOP first";
+  with the strap unbonded, "connect your strap." macOS 13+, **no new entitlement or Info.plist key**.
+  The inbound counterpart to the existing outbound double-tap→Shortcut path (#42 idea-mining).
+- **New (Android): today's recovery % in the foreground-service notification.**
+  `WhoopConnectionService` now `combine`s `ble.state` with `repo.daysMergedFlow("my-whoop")` and appends
+  "Recovery NN%" to the ongoing notification's detail line (alongside live HR + strap battery). It
+  re-posts when the 15-min `IntelligenceEngine` recompute lands, and stays absent until enough nights
+  are scored. `runCatching`-guarded; near-zero blast radius (notification copy only).
+
 ## 1.55 — Mac: recovery builds from your strap alone (#78)
 
 - **New (macOS): BLE-only recovery cold-start — parity with Android v1.53.** `IntelligenceEngine.swift`
