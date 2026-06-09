@@ -17,6 +17,27 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 1.37 — New first-run onboarding, Mac + Android parity (#36 / #63)
+
+- **A unified 11-step first-run onboarding** on both platforms (Welcome · What it does · Expectations ·
+  Bluetooth · Wear · Connect/Scan · **Bonded** celebration · Profile · Import · **Notifications** · Done),
+  reimplemented from community PR #36 (by Brechard; design in #63). Highlights:
+  - **Contextual permissions (Android)** — nothing fires at launch; Bluetooth is requested only when
+    leaving the "before you connect" screen, scanning goes through the shared `BlePermissions.kt` gate
+    (the same one Live/Settings use), and notifications are requested on the Notifications step's CTA.
+  - **Bonded celebration** auto-advances once the strap bonds (skipped when nothing is bonded); the
+    **foreground-connection service is promoted only on completion**, not mid-flow.
+  - **Parity/polish** — config-change-safe nav (`rememberSaveable`), typed import-failure styling on both
+    platforms (incl. a macOS Data Sources green-on-failure fix), `+/−` steppers for the profile (the two
+    `StepperField`/`StepperButton` helpers promoted from Settings into the shared `Components.kt`), shared
+    component system + `Metrics.*` spacing, chrome uses `accent` rather than the data-reserved recovery ramp.
+  - Verified on adoption: every recent fix survives untouched (HR-spike smoothing #46, smart-alarm bond
+    re-arm #59, the Re-scan permission gate #1, the buzz), the `connect(promoteService:)` change is
+    backward-compatible, and the unused `GhostButtonStyle` was dropped.
+- **Live HR zones use your real max heart rate.** `HealthScreen` now reads `ProfileStore.hrMax` (your manual
+  override, else the age-based Tanaka estimate) for live zone/%-max instead of a hardcoded `190` — committed
+  separately from the onboarding change.
+
 ## 1.36 — Android: direct reconnect after a dropout (#61)
 
 - **Fixed (Android): a dropped WHOOP 4.0 could get stuck "disconnected" and never reconnect** (issue
