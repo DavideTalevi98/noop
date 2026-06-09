@@ -234,6 +234,10 @@ object WhoopCsvImporter {
         "schlaf.csv" -> SLEEPS_NAME
         "trainings.csv" -> WORKOUTS_NAME
         "logbuch_eintraege.csv" -> JOURNAL_NAME
+        // Spanish (issue #76): physiological_cycles.csv keeps its English name; sleep/workouts renamed.
+        // Folded + unfolded variants — the filename is lowercased but not diacritic-folded.
+        "sueño.csv", "sueno.csv" -> SLEEPS_NAME
+        "entrenamientos.csv" -> WORKOUTS_NAME
         else -> null
     }
 

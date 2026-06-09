@@ -120,6 +120,40 @@ internal object HeaderNorm {
         "fragetext" to "question_text",
         "beantwortet_mit_ja" to "answered_yes_no",
         "anmerkungen" to "notes",
+        // — Spanish (issue #76): physiological_cycles keeps its English filename but Spanish columns;
+        //   sueño.csv / entrenamientos.csv. Headers supplied by a real export. —
+        "hora_de_inicio_del_ciclo" to "cycle_start_time",
+        "hora_de_finalizacion_del_ciclo" to "cycle_end_time",
+        "zona_horaria_del_ciclo" to "cycle_timezone",
+        "puntuacion_de_recuperacion_pct" to "recovery_score_pct",
+        "frecuencia_cardiaca_en_reposo_lpm" to "resting_heart_rate_bpm",
+        "variabilidad_de_la_frecuencia_cardiaca_ms" to "heart_rate_variability_ms",
+        "temp_cutanea_grados_centigrados" to "skin_temp_celsius",
+        "oxigeno_en_sangre_pct" to "blood_oxygen_pct",
+        "esfuerzo_del_dia" to "day_strain",
+        "energia_quemada_cal" to "energy_burned_cal",
+        "fc_max_lpm" to "max_hr_bpm",
+        "fc_promedio_lpm" to "average_hr_bpm",
+        "inicio_del_sueno" to "sleep_onset",
+        "inicio_de_la_vigilia" to "wake_onset",
+        "calificacion_del_sueno_pct" to "sleep_performance_pct",
+        "frecuencia_respiratoria_rpm" to "respiratory_rate_rpm",
+        "duracion_del_sueno_min" to "asleep_duration_min",
+        "tiempo_en_la_cama_min" to "in_bed_duration_min",
+        "duracion_de_sueno_ligero_min" to "light_sleep_duration_min",
+        "duracion_de_sueno_profundo_sws_min" to "deep_sws_duration_min",
+        "duracion_de_sueno_rem_min" to "rem_duration_min",
+        "tempo_despierto_a_min" to "awake_duration_min",       // es export reads "Tempo despierto/a"
+        "sueno_necesario_min" to "sleep_need_min",
+        "deuda_de_sueno_min" to "sleep_debt_min",
+        "eficiencia_del_sueno_pct" to "sleep_efficiency_pct",
+        "regularidad_del_sueno_pct" to "sleep_consistency_pct",
+        "siesta" to "nap",
+        // Workout columns inferred from WHOOP's consistent es naming; harmless if a name differs.
+        "hora_de_inicio_del_entrenamiento" to "workout_start_time",
+        "hora_de_finalizacion_del_entrenamiento" to "workout_end_time",
+        "nombre_de_la_actividad" to "activity_name",
+        "esfuerzo_de_la_actividad" to "activity_strain",
     )
 }
 

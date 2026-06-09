@@ -29,6 +29,10 @@ public struct WhoopExportImporter {
         case "schlaf.csv":                return sleepsName
         case "trainings.csv":             return workoutsName
         case "logbuch_eintraege.csv":     return journalName
+        // Spanish (issue #76): physiological_cycles.csv keeps its English name, but sleep/workouts are
+        // renamed. Folded + unfolded variants since the filename is lowercased but not diacritic-folded.
+        case "sueño.csv", "sueno.csv":    return sleepsName
+        case "entrenamientos.csv":        return workoutsName
         default:                          return nil
         }
     }

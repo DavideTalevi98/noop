@@ -105,6 +105,41 @@ enum HeaderNorm {
         "fragetext": "question_text",
         "beantwortet_mit_ja": "answered_yes_no",
         "anmerkungen": "notes",
+        // — Spanish (physiological_cycles keeps its English filename but Spanish columns / sueño.csv /
+        //   entrenamientos.csv). Headers supplied by a real export (issue #76). —
+        "hora_de_inicio_del_ciclo": "cycle_start_time",
+        "hora_de_finalizacion_del_ciclo": "cycle_end_time",
+        "zona_horaria_del_ciclo": "cycle_timezone",
+        "puntuacion_de_recuperacion_pct": "recovery_score_pct",
+        "frecuencia_cardiaca_en_reposo_lpm": "resting_heart_rate_bpm",
+        "variabilidad_de_la_frecuencia_cardiaca_ms": "heart_rate_variability_ms",
+        "temp_cutanea_grados_centigrados": "skin_temp_celsius",
+        "oxigeno_en_sangre_pct": "blood_oxygen_pct",
+        "esfuerzo_del_dia": "day_strain",
+        "energia_quemada_cal": "energy_burned_cal",
+        "fc_max_lpm": "max_hr_bpm",
+        "fc_promedio_lpm": "average_hr_bpm",
+        "inicio_del_sueno": "sleep_onset",
+        "inicio_de_la_vigilia": "wake_onset",
+        "calificacion_del_sueno_pct": "sleep_performance_pct",
+        "frecuencia_respiratoria_rpm": "respiratory_rate_rpm",
+        "duracion_del_sueno_min": "asleep_duration_min",
+        "tiempo_en_la_cama_min": "in_bed_duration_min",
+        "duracion_de_sueno_ligero_min": "light_sleep_duration_min",
+        "duracion_de_sueno_profundo_sws_min": "deep_sws_duration_min",
+        "duracion_de_sueno_rem_min": "rem_duration_min",
+        "tempo_despierto_a_min": "awake_duration_min",       // WHOOP's es export reads "Tempo despierto/a"
+        "sueno_necesario_min": "sleep_need_min",
+        "deuda_de_sueno_min": "sleep_debt_min",
+        "eficiencia_del_sueno_pct": "sleep_efficiency_pct",
+        "regularidad_del_sueno_pct": "sleep_consistency_pct",
+        "siesta": "nap",
+        // Workout columns inferred from WHOOP's consistent es naming (a real entrenamientos.csv header
+        // would confirm); harmless if a name differs — an unmatched alias simply never fires.
+        "hora_de_inicio_del_entrenamiento": "workout_start_time",
+        "hora_de_finalizacion_del_entrenamiento": "workout_end_time",
+        "nombre_de_la_actividad": "activity_name",
+        "esfuerzo_de_la_actividad": "activity_strain",
     ]
 }
 

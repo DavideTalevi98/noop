@@ -17,7 +17,20 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
-## 1.48 — More reliable Bluetooth on newer Android phones (#77)
+## 1.49 — Spanish WHOOP exports now import (#76)
+
+- **Fixed: a Spanish WHOOP export imported 0 items.** WHOOP's Spanish export translates **both** the
+  column headers (`Puntuación de recuperación (%)`, `Variabilidad de la frecuencia cardíaca (ms)`, …)
+  **and** some filenames (`sueño.csv`, `entrenamientos.csv`) — so the filename match missed the sleep/
+  workout files and the column match missed every translated header, giving "Imported 0 items."
+- NOOP now maps the full set of Spanish column headers (supplied from a real export, #76) onto the
+  canonical fields, and recognises the Spanish filenames — so recovery, RHR, HRV, skin temp, blood
+  oxygen, day strain, every sleep stage, nap, etc. all import. `physiological_cycles.csv` keeps its
+  English filename in the Spanish export but its columns are Spanish; both cases are handled. The
+  content-sniffer also classifies the Spanish sleep file by its (now-aliased) columns.
+- Same approach that added German (#3). Workout column names are inferred from WHOOP's consistent
+  Spanish pattern; an unmatched alias simply never fires, so it's safe. Mac + Android. A real-header
+  parse test pins the values. Verified with `swift test`.
 
 - **Fixed (Android): dropped Bluetooth commands on stricter stacks (Android 13+, worst on Android 16).**
   When the phone's GATT stack was momentarily busy it would reject a command write, and NOOP **dropped**

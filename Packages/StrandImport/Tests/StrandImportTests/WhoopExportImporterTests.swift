@@ -233,4 +233,32 @@ final class WhoopExportImporterTests: XCTestCase {
         XCTAssertEqual(rows[0].dayStrain, 12.5)
         XCTAssertEqual(rows[0].cycleStart, Fixtures.utc(2024, 3, 1, 6, 0, 0))
     }
+
+    // MARK: - Localized (Spanish) column headers — issue #76
+
+    func testSpanishHeaderNormalizationAliases() {
+        // Diacritic-folded Spanish headers map onto the canonical English keys.
+        XCTAssertEqual(HeaderNorm.normalize("Puntuación de recuperación (%)"), "recovery_score_pct")
+        XCTAssertEqual(HeaderNorm.normalize("Frecuencia cardíaca en reposo (lpm)"), "resting_heart_rate_bpm")
+        XCTAssertEqual(HeaderNorm.normalize("Variabilidad de la frecuencia cardíaca (ms)"), "heart_rate_variability_ms")
+        XCTAssertEqual(HeaderNorm.normalize("Temp. cutánea (grados centígrados)"), "skin_temp_celsius")
+        XCTAssertEqual(HeaderNorm.normalize("Tempo despierto/a (min)"), "awake_duration_min")
+        XCTAssertEqual(HeaderNorm.normalize("Regularidad del sueño %"), "sleep_consistency_pct")
+        XCTAssertEqual(HeaderNorm.normalize("Siesta"), "nap")
+    }
+
+    func testSpanishCyclesValuesParse() throws {
+        // The EXACT physiological_cycles.csv header from a real Spanish export (issue #76) + one data row.
+        let csv = """
+        Hora de inicio del ciclo,Hora de finalización del ciclo,Zona horaria del ciclo,Puntuación de recuperación (%),Frecuencia cardíaca en reposo (lpm),Variabilidad de la frecuencia cardíaca (ms),Temp. cutánea (grados centígrados),Oxígeno en sangre %,Esfuerzo del día,Energía quemada (cal),FC máx. (lpm),FC promedio (lpm),Inicio del sueño,Inicio de la vigilia,Calificación del sueño (%),Frecuencia respiratoria (rpm),Duración del sueño (min),Tiempo en la cama (min),Duración de sueño ligero (min),Duración de sueño profundo (SWS) (min),Duración de sueño REM (min),Tempo despierto/a (min),Sueño necesario (min),Deuda de sueño (min),Eficiencia del sueño %,Regularidad del sueño %
+        2024-03-01 06:00:00,2024-03-02 06:00:00,UTC+00:00,80,52,95,33.5,96,12.5,2000,150,61,2024-03-01 23:00:00,2024-03-02 06:30:00,90,14,420,450,200,120,100,30,480,60,93,85
+        """
+        let rows = WhoopExportImporter().parseCycles(CSVTable(text: csv))
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].recoveryScore, 80)
+        XCTAssertEqual(rows[0].restingHeartRate, 52)
+        XCTAssertEqual(rows[0].hrvMs, 95)
+        XCTAssertEqual(rows[0].dayStrain, 12.5)
+        XCTAssertEqual(rows[0].cycleStart, Fixtures.utc(2024, 3, 1, 6, 0, 0))
+    }
 }
