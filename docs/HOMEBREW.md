@@ -1,6 +1,6 @@
-# Homebrew Cask (macOS) — setup
+# Homebrew Cask (macOS)
 
-Once enabled, macOS users install + auto-update NOOP with:
+macOS users install + auto-update NOOP with:
 
 ```bash
 brew tap noopapp/noop
@@ -8,41 +8,39 @@ brew install --cask noop
 brew upgrade --cask noop   # later updates
 ```
 
-The cask points at the macOS `.zip` attached to each GitHub Release; the
-[`homebrew.yml`](../.github/workflows/homebrew.yml) workflow regenerates the cask (version + SHA256) on
-every published release, so updates are zero-maintenance.
+The cask lives in the **`NoopApp/homebrew-noop`** tap and points at the macOS `.zip` attached to each
+GitHub Release.
 
 > **Unsigned-app note.** NOOP ships anonymously with no Apple Developer ID, so it isn't notarized.
 > Homebrew can't strip the quarantine flag for an un-notarized app, so on **first launch** Gatekeeper
-> blocks it — the user right-clicks NOOP in `/Applications` → **Open** → **Open** (once). The cask's
-> `caveats` says this. Updates after that are just `brew upgrade`.
+> blocks it — right-click NOOP in `/Applications` → **Open** → **Open** (once). The cask's `caveats`
+> says this. Updates after that are just `brew upgrade`.
 
-## Two one-time steps (maintainer only)
+## How it stays current
 
-The workflow is committed but **inert** until these are done — it runs only when the repo variable
-`HOMEBREW_TAP_ENABLED` is `true`.
+The cask is refreshed **as part of cutting each macOS release** — the last step of the release process
+runs:
 
-### 1. Create the tap repo
+```bash
+Tools/update-homebrew-cask.sh <version>     # e.g. Tools/update-homebrew-cask.sh 1.94
+```
 
-Create a public repo **`NoopApp/homebrew-noop`** (the `homebrew-` prefix is required for `brew tap` to
-find it). Empty is fine — the workflow creates `Casks/noop.rb` on the next release. Keep it anonymous
-(NoopApp org, no real-name identity).
+That script computes the release zip's SHA256, regenerates `Casks/noop.rb`, and pushes it to the tap.
+There is **no GitHub Actions workflow / repo secret** — releases are cut by hand, so the cask update
+rides along with them. Fewer secrets, nothing to fail, one less surface to keep anonymous.
 
-### 2. Add the token + enable
+## Requirements
 
-- Create a **fine-grained PAT** with **Contents: Read and write** scoped to **`NoopApp/homebrew-noop`
-  only** (nothing else). Author identity doesn't matter — the workflow commits as `NoopApp`.
-- In **`NoopApp/noop` → Settings → Secrets and variables → Actions**:
-  - add secret **`HOMEBREW_TAP_TOKEN`** = that PAT,
-  - add variable **`HOMEBREW_TAP_ENABLED`** = `true`.
-
-Then either publish a release or run the **Update Homebrew Cask** workflow manually
-(`workflow_dispatch`, pass a tag like `v1.94`) to seed the cask. Done.
+- The tap repo **`NoopApp/homebrew-noop`** exists (public). ✅ done.
+- The NoopApp PAT at `~/.config/noop/gh_token` (the same one used to push releases) has
+  **Contents: Read and write** on `homebrew-noop`. The script reads the token from that file and
+  supplies it through a transient git credential helper, so **the token never appears on a command
+  line, in a remote URL, or in any output** (a clean remote URL is used for clone + push).
 
 ## Anonymity checklist
 
-- Tap repo under the anonymous **NoopApp** org.
-- PAT scoped to **only** the tap repo's Contents — no broader access, no identity leak.
-- Cask commits authored `NoopApp <thenoopapp@gmail.com>` (the workflow sets this explicitly).
+- Tap repo + commits under the anonymous **NoopApp** identity (the script commits as
+  `NoopApp <thenoopapp@gmail.com>`).
+- Token read from the local file only; never echoed. Scope it to the repos it needs and no more.
 - The cask installs the **already-anonymized** release zip (scrubbed by `Tools/anonymize-macos-app.sh`
   at build time) — no new surface.
