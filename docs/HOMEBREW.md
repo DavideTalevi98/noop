@@ -32,7 +32,7 @@ The cask is refreshed **as part of cutting each macOS release** — the last ste
 runs:
 
 ```bash
-Tools/update-homebrew-cask.sh <version>     # e.g. Tools/update-homebrew-cask.sh 1.94
+Tools/update-homebrew-cask.sh <version>     # e.g. Tools/update-homebrew-cask.sh 1.95
 ```
 
 That script computes the release zip's SHA256, regenerates `Casks/noop.rb`, and pushes it to the tap.
