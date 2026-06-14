@@ -299,8 +299,8 @@ object LiftingImporter {
             val setList = entry.optJSONArray("sets") ?: continue
             for (s in 0 until setList.length()) {
                 val set = setList.optJSONObject(s) ?: continue
-                // A logged set has completed reps; templates without `completedReps` are skipped.
-                val r = liftosaurInt(if (set.has("completedReps")) set.opt("completedReps") else set.opt("reps"))
+                // A logged set has completed reps; templates with only planned `reps` are skipped.
+                val r = if (set.has("completedReps")) liftosaurInt(set.opt("completedReps")) else null
                 if (r == null || r <= 0) continue
                 sets++
                 reps += r

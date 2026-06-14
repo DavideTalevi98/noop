@@ -15,13 +15,28 @@ import WhoopStore
 enum WorkoutSource: Equatable {
     case whoop, apple, detected, manual, lifting
 
+    /// Canonical Apple Health source id written by new imports. The early rows used the underscore
+    /// spelling, so reads must accept both — see `isAppleHealth`.
+    static let appleHealthSource = "apple-health"
+    private static let legacyAppleHealthSource = "apple_health"
+
     static func classify(_ source: String) -> WorkoutSource {
         let s = source.lowercased()
         if s.hasSuffix("-noop") { return .detected }   // BEFORE whoop: "my-whoop-noop" contains "whoop"
         if s == "manual" { return .manual }
         if s == "lifting" { return .lifting }          // imported Hevy / Liftosaur strength session
+        if isAppleHealth(s) { return .apple }          // both spellings → Apple Health
         if s.contains("whoop") { return .whoop }
         return .apple
+    }
+
+    /// True for an Apple Health workout row regardless of which spelling it was stored under —
+    /// the canonical `apple-health` or the legacy `apple_health`. Case-insensitive. Counts that
+    /// filter Apple-logged workouts (Today, the Apple Health page) MUST go through this so existing
+    /// underscore rows still tally.
+    static func isAppleHealth(_ source: String) -> Bool {
+        let s = source.lowercased()
+        return s == appleHealthSource || s == legacyAppleHealthSource
     }
 
     /// Sport-cell text. The detector stores the machine token "detected"; show it as a neutral

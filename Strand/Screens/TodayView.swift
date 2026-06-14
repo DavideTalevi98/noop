@@ -54,13 +54,24 @@ struct TodayView: View {
     // Today's heart rate as 5-minute bucket means (midnight → now), for the 24h trend chart.
     @State private var hrPoints: [TrendPoint] = []
 
+    // The night's sleep session overlapping the HR window — shaded as a band on the HR chart and
+    // used to anchor the recovery marker at wake time (WHOOP-style Overview HR annotations).
+    @State private var sleepToday: CachedSleepSession?
+
+    // The HR chart's x-axis window. Today → midnight…now; a navigated PAST day → the full calendar
+    // day (midnight…next midnight) so a morning with no banked data reads as empty space rather than
+    // the axis silently starting at the first sample (#overview-hr gap clarity).
+    @State private var hrAxis: ClosedRange<Date>?
+
     // Day navigation — 0 = today (the logical day), 1 = yesterday, … The DayNavBar chevrons and date
     // jump drive this, and every day-scoped read-out (hero synthesis, the Key-Metrics tiles, the HR
     // trend and Rest score) resolves to the selected day instead of always showing today. Mirrors the
     // Android TodayScreen.selectedDayOffset. Loads re-run when this changes (see .task(id:)).
     @State private var selectedDayOffset = 0
 
-    // Support sheet (donate + contact) — always reachable from the home toolbar.
+    // Support sheet (donate + contact) — opened from the home toolbar on macOS, and from an
+    // in-content control on iOS (a primary tab has no NavigationStack, so a `.toolbar` item never
+    // renders on iPhone — the affordance was dead there before this in-flow button + sheet, #185-class).
     @State private var showingSupport = false
 
     // "How your scores work" guide — presented at a specific score's section when the ⓘ on that
@@ -120,8 +131,19 @@ struct TodayView: View {
         return "Learning your baseline — \(n) of \(Baselines.minNightsSeed) nights."
     }
 
+    /// The iOS tab is already labelled "Today", and "Control Center" collides with the OS feature of
+    /// that name (on both platforms). Match the tab on iOS; keep the established name on macOS.
+    private var screenTitle: LocalizedStringKey {
+        #if os(iOS)
+        "Today"
+        #else
+        "Control Center"
+        #endif
+    }
+
     var body: some View {
-        ScreenScaffold(title: "Control Center", subtitle: "\(dateLine)") {
+        ScreenScaffold(title: screenTitle, subtitle: "\(dateLine)",
+                       onRefresh: { await repo.refresh() }) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 HealthAlertBanner()
                 // Browse past days — chevrons + a date jump capped at today (no future days).
@@ -147,12 +169,23 @@ struct TodayView: View {
                 workoutsSection
                 // Honest, dismissible 12-hourly donation ask — a card in the flow, never a modal.
                 DonationNudgeCard()
+                #if os(iOS)
+                // iOS entry point to Support (donate + contact). macOS opens the same sheet from the
+                // toolbar heart, but a primary tab on iPhone has no nav bar to host a `.toolbar` item,
+                // so the affordance lives in-content here and presents SupportView as an auto-sized sheet.
+                supportRow
+                #endif
                 sourcesSection
             }
         }
         // Reload when the data refreshes OR the selected day changes — the HR trend and Rest score are
         // day-scoped, so navigating must re-fetch them for the newly selected window.
         .task(id: TodayLoadKey(seq: repo.refreshSeq, offset: selectedDayOffset)) { await loadAll() }
+        #if os(macOS)
+        // macOS hosts the Support affordance in the window toolbar (RootView's NavigationSplitView
+        // supplies the toolbar) and presents it as the fixed-width SupportModalOverlay panel. On iOS
+        // this path is unavailable (no nav bar on a primary tab) and the 560pt panel would overflow
+        // iPhone, so the in-content `supportRow` + auto-sized `.sheet` below take over instead.
         .toolbar {
             ToolbarItem {
                 Button { showingSupport = true } label: {
@@ -170,6 +203,10 @@ struct TodayView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: showingSupport)
+        #else
+        // iOS: present Support as an auto-sized sheet (sizes to the device, unlike the 560pt overlay).
+        .sheet(isPresented: $showingSupport) { SupportView() }
+        #endif
         // The scoring guide, opened at a specific score from its ⓘ.
         .sheet(item: $guideSection) { section in
             ScoringGuideView(initialSection: section, onClose: { guideSection = nil })
@@ -233,6 +270,42 @@ struct TodayView: View {
         }
     }
 
+    #if os(iOS)
+    // MARK: Support entry point (iOS) — the in-content stand-in for the macOS toolbar heart.
+
+    /// An in-flow card that opens the Support sheet (donate + contact). The whole card is the tap
+    /// target; reuses the heart.fill + metricRose styling and the accessibility copy of the macOS
+    /// toolbar button so both platforms read identically. iOS-only — macOS keeps the toolbar item.
+    private var supportRow: some View {
+        Button { showingSupport = true } label: {
+            NoopCard {
+                HStack(spacing: 14) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(StrandPalette.metricRose)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Support NOOP")
+                            .font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text("Donate or get in touch — totally optional.")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Support NOOP — donate or get in touch")
+    }
+    #endif
+
     // MARK: Readiness — on-device training-readiness synthesis (HRV / resting-HR / load).
 
     @ViewBuilder
@@ -245,8 +318,10 @@ struct TodayView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 10) {
                             Circle().fill(readinessColor(r.level)).frame(width: 10, height: 10)
+                                .accessibilityHidden(true)
                             Text(r.headline).font(StrandFont.headline)
                                 .foregroundStyle(StrandPalette.textPrimary)
+                                .accessibilityLabel("Readiness: \(levelWord(r.level)). \(r.headline)")
                             Spacer()
                             if let acwr = r.acwr {
                                 Text("load \(String(format: "%.2f", acwr))")
@@ -262,8 +337,14 @@ struct TodayView: View {
                             Divider().overlay(StrandPalette.hairline)
                             ForEach(r.signals, id: \.key) { s in
                                 HStack(alignment: .top, spacing: 8) {
-                                    Circle().fill(flagColor(s.flag)).frame(width: 7, height: 7)
-                                        .padding(.top, 5)
+                                    // Glyph + colour (not colour alone) so the flag reads
+                                    // for colour-blind users; hidden from VoiceOver since the
+                                    // flag word is folded into the row's combined label below.
+                                    Image(systemName: flagSymbol(s.flag))
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(flagColor(s.flag))
+                                        .padding(.top, 4)
+                                        .accessibilityHidden(true)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(s.label).font(StrandFont.caption)
                                             .foregroundStyle(StrandPalette.textSecondary)
@@ -280,12 +361,45 @@ struct TodayView: View {
                                         .fixedSize(horizontal: false, vertical: true)
                                     Spacer(minLength: 0)
                                 }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("\(s.label), \(flagWord(s.flag)): \(s.detail)")
                             }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+        }
+    }
+
+    // Word + glyph equivalents so the colour-coded severity isn't carried by hue
+    // alone — read by VoiceOver and visible to colour-blind users.
+    private func levelWord(_ l: ReadinessEngine.Level) -> String {
+        switch l {
+        case .primed:       return "Primed"
+        case .balanced:     return "Balanced"
+        case .strained:     return "Strained"
+        case .rundown:      return "Run down"
+        case .insufficient: return "Not enough data"
+        }
+    }
+
+    private func flagWord(_ f: ReadinessEngine.Flag) -> String {
+        switch f {
+        case .good:    return "Good"
+        case .neutral: return "Neutral"
+        case .watch:   return "Watch"
+        case .bad:     return "Alert"
+        }
+    }
+
+    /// Colour-independent glyph so severity isn't conveyed by hue alone.
+    private func flagSymbol(_ f: ReadinessEngine.Flag) -> String {
+        switch f {
+        case .good:    return "checkmark.circle.fill"
+        case .neutral: return "minus.circle.fill"
+        case .watch:   return "exclamationmark.circle.fill"
+        case .bad:     return "exclamationmark.triangle.fill"
         }
     }
 
@@ -393,11 +507,15 @@ struct TodayView: View {
                     subtitle: selectedDayOffset == 0 ? "5-minute average · since midnight" : "5-minute average · selected day",
                     trailing: v.last.map { "\(Int($0.rounded())) bpm" }
                 ) {
-                    TrendChart(
+                    OverviewHRChart(
                         points: hrPoints,
+                        sleep: sleepSpan,
+                        workouts: workoutSpans,
+                        recovery: recoveryMarker,
+                        effort: effortMarker,
                         gradient: Gradient(colors: [StrandPalette.metricRose.opacity(0.55), StrandPalette.metricRose]),
                         valueRange: hrRange(v),
-                        showsArea: true,
+                        xRange: hrAxis,
                         height: NoopMetrics.chartHeight,
                         valueFormat: { "\(Int($0.rounded())) bpm" },
                         dateFormat: { Self.hrTimeFmt.string(from: $0) }
@@ -419,6 +537,63 @@ struct TodayView: View {
         if hi <= lo { return (lo - 5)...(hi + 5) }
         let span = hi - lo
         return (lo - span * 0.12)...(hi + span * 0.12)
+    }
+
+    // MARK: Overview HR markers (sleep band · workout glyphs · Charge / Effort)
+
+    /// The HR chart's x-window, derived from the loaded points (used to scope workout glyphs).
+    private var hrWindow: ClosedRange<Date>? {
+        guard let lo = hrPoints.first?.date, let hi = hrPoints.last?.date, lo < hi else { return nil }
+        return lo...hi
+    }
+
+    /// "H:MM" for a duration in seconds (e.g. a 6h06m night → "6:06").
+    private func hoursMinutes(_ seconds: Int) -> String {
+        let h = max(0, seconds) / 3600, m = (max(0, seconds) % 3600) / 60
+        return "\(h):\(String(format: "%02d", m))"
+    }
+
+    /// Last night's sleep as a shaded band, labelled with its duration.
+    private var sleepSpan: OverviewHRChart.SleepSpan? {
+        guard let s = sleepToday else { return nil }
+        return .init(
+            start: Date(timeIntervalSince1970: TimeInterval(s.startTs)),
+            end: Date(timeIntervalSince1970: TimeInterval(s.endTs)),
+            label: hoursMinutes(s.endTs - s.startTs)
+        )
+    }
+
+    /// Each workout overlapping the HR window, as a sport glyph anchored at its HR peak.
+    private var workoutSpans: [OverviewHRChart.WorkoutSpan] {
+        guard let win = hrWindow else { return [] }
+        return workouts.compactMap { w in
+            let start = Date(timeIntervalSince1970: TimeInterval(w.startTs))
+            let end = Date(timeIntervalSince1970: TimeInterval(w.endTs))
+            guard end >= win.lowerBound, start <= win.upperBound else { return nil }
+            return .init(start: start, end: end, symbol: sportSymbol(w.sport))
+        }
+    }
+
+    /// "Charge" marker (NOOP's name for recovery) at wake time (sleep end), else at the window start.
+    /// Hidden while calibrating.
+    private var recoveryMarker: OverviewHRChart.EdgeMarker? {
+        guard let rec = displayDay?.recovery else { return nil }
+        let at = sleepToday.map { Date(timeIntervalSince1970: TimeInterval($0.endTs)) }
+            ?? hrPoints.first?.date
+        guard let date = at else { return nil }
+        return .init(date: date, label: "\(Int(rec.rounded()))% Charge",
+                     color: StrandPalette.recoveryColor(rec), alignment: .leading)
+    }
+
+    /// "Effort" marker pinned to the right edge (latest HR sample). Routed through the SAME formatter
+    /// as the Effort tile (`UnitFormatter.effortDisplay`) so it honours the 0–100 / WHOOP-0–21 scale
+    /// preference (#268) and reads identically — the stored strain is on the 0–100 axis, so a morning
+    /// "21.2" is 21.2-of-100, not WHOOP's near-max 21-of-21.
+    private var effortMarker: OverviewHRChart.EdgeMarker? {
+        guard let strain = displayDay?.strain, let date = hrPoints.last?.date else { return nil }
+        return .init(date: date,
+                     label: "\(UnitFormatter.effortDisplay(strain, scale: effortScale)) Effort",
+                     color: StrandPalette.strainColor(strain), alignment: .trailing)
     }
 
     // MARK: (b) METRICS — one uniform grid of 104pt StatTiles, every cell filled.
@@ -601,7 +776,7 @@ struct TodayView: View {
                         badge: "Apple Health",
                         tint: StrandPalette.metricCyan,
                         present: !appleDays.isEmpty,
-                        detail: "\(appleDays.count) days · \(workouts.filter { $0.source == "apple-health" }.count) workouts"
+                        detail: "\(appleDays.count) days · \(workouts.filter { WorkoutSource.isAppleHealth($0.source) }.count) workouts"
                     )
                     strapBatteryRow
                     Divider().overlay(StrandPalette.hairline)
@@ -762,6 +937,19 @@ struct TodayView: View {
             : Int((Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart).timeIntervalSince1970)
         hrPoints = await repo.hrBuckets(from: windowStart, to: windowEnd, bucketSeconds: 300)
             .map { TrendPoint(date: Date(timeIntervalSince1970: TimeInterval($0.ts)), value: $0.bpm) }
+        // Pin the chart axis to the loaded window — today midnight→now, a past day the full 24h — so
+        // a gap (e.g. a morning the strap wasn't banking) shows as empty space, not a late start.
+        hrAxis = Date(timeIntervalSince1970: TimeInterval(windowStart))
+            ... Date(timeIntervalSince1970: TimeInterval(windowEnd))
+
+        // Sleep session overlapping the window. Uses `allSleepSessions` (BOTH the imported and the
+        // on-device COMPUTED source) — a Bluetooth-only user's sleep lives under the computed source,
+        // so the imported-only `sleepSessions` returns nothing. Keep blocks that actually overlap the
+        // displayed window, then pick the LONGEST — the main night, not an afternoon nap. Drives the
+        // HR sleep band + the recovery marker's wake anchor.
+        sleepToday = await repo.allSleepSessions(days: selectedDayOffset + 2)
+            .filter { $0.endTs > windowStart && $0.startTs < windowEnd }
+            .max(by: { ($0.endTs - $0.startTs) < ($1.endTs - $1.startTs) })
     }
 
     /// Trailing-window values for a metric — NO fall back to all history. The section is labelled a

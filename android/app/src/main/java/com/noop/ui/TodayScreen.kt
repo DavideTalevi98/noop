@@ -1,5 +1,6 @@
 package com.noop.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Battery5Bar
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -51,8 +54,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +75,8 @@ import com.noop.analytics.Baselines
 import com.noop.analytics.ReadinessEngine
 import com.noop.data.AppleDaily
 import com.noop.data.DailyMetric
+import com.noop.data.HrBucket
+import com.noop.data.SleepSession
 import com.noop.data.WorkoutRow
 import com.noop.ingest.HealthConnectImporter
 import java.time.Instant
@@ -397,7 +410,7 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
             enabledMetrics = enabledKeyMetrics,
             onScoreInfo = openGuide,
         )
-        HeartRateTrendCard(viewModel, days, selectedDay, todayDate)
+        HeartRateTrendCard(viewModel, days, selectedDay, todayDate, displayMetric, effortScale)
         TodayWorkoutsSection(footer.recentWorkouts)
         // Honest, dismissible 12-hourly donation ask — a card in the flow, never a dialog.
         DonationNudgeCard()
@@ -752,11 +765,18 @@ private fun HeartRateTrendCard(
     days: List<DailyMetric>,
     selectedDay: LocalDate,
     today: LocalDate,
+    displayMetric: DailyMetric? = null,
+    effortScale: EffortScale = EffortScale.HUNDRED,
 ) {
     // "Today" here is the LOGICAL day (rolls at 04:00 local), so in the small hours after midnight the
     // trend keeps the evening's curve — window start at the logical day's own midnight, "since midnight"
     // subtitle, "Today" label — rather than blanking to an empty new-calendar-day axis (#144).
-    var buckets by remember { mutableStateOf<List<Double>>(emptyList()) }
+    var buckets by remember { mutableStateOf<List<HrBucket>>(emptyList()) }
+    // The night's sleep session overlapping the HR window + the day's workouts — the Overview-HR
+    // marker layers (sleep band, Charge at wake, sport glyphs at HR peaks). Loaded off the main
+    // thread alongside the buckets; each marker self-hides when its data is absent. (PR #285)
+    var sleepToday by remember { mutableStateOf<SleepSession?>(null) }
+    var workoutsToday by remember { mutableStateOf<List<WorkoutRow>>(emptyList()) }
     // Re-load when the day list changes (a sync/import updates it), and on first composition.
     LaunchedEffect(days, selectedDay, today) {
         val zone = ZoneId.systemDefault()
@@ -764,14 +784,27 @@ private fun HeartRateTrendCard(
         val nextStart = selectedDay.plusDays(1).atStartOfDay(zone).toEpochSecond()
         val now = System.currentTimeMillis() / 1000
         val end = if (selectedDay == today) now else (nextStart - 1)
-        buckets = viewModel.repo.hrBuckets("my-whoop", start, end, 300L).map { it.avgBpm }
+        buckets = viewModel.repo.hrBuckets("my-whoop", start, end, 300L)
+        // The sleep that ended within the chart window (the night before / this morning) — anchors
+        // the band + the Charge-at-wake marker. A wide lower bound catches an onset before midnight.
+        sleepToday = runCatching {
+            viewModel.repo.sleepSessions("my-whoop", start - 18 * 3600L, end)
+                .filter { it.startTs <= end && it.endTs >= start }   // overlaps the window
+                .maxByOrNull { it.endTs }
+        }.getOrNull()
+        // Workouts overlapping the window — each gets a sport glyph at its in-window HR peak.
+        workoutsToday = runCatching {
+            viewModel.repo.workouts("my-whoop", start - 6 * 3600L, end)
+                .filter { it.startTs <= end && it.endTs >= start }
+        }.getOrDefault(emptyList())
     }
     if (buckets.size < 2) return
 
-    val latest = buckets.last().roundToInt()
-    val min = buckets.min().roundToInt()
-    val max = buckets.max().roundToInt()
-    val avg = buckets.average().roundToInt()
+    val bpm = remember(buckets) { buckets.map { it.avgBpm } }
+    val latest = bpm.last().roundToInt()
+    val min = bpm.min().roundToInt()
+    val max = bpm.max().roundToInt()
+    val avg = bpm.average().roundToInt()
 
     val selectedLabel = when (selectedDay) {
         today -> "Today"
@@ -814,12 +847,18 @@ private fun HeartRateTrendCard(
                     Text("$avg", style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
                     Text("$min", style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
                 }
-                LineChart(
-                    values = buckets,
+                // The HR line, with the Overview marker layers (sleep band · Charge · Effort · sport
+                // glyphs) overlaid on top — markers are positioned by mapping each event's wall-clock
+                // time onto the line's index spacing, so they sit on the same curve. (PR #285)
+                OverviewHRChart(
+                    buckets = buckets,
+                    bpm = bpm,
+                    sleep = sleepToday,
+                    workouts = workoutsToday,
+                    recovery = displayMetric?.recovery,
+                    strain = displayMetric?.strain,
+                    effortScale = effortScale,
                     modifier = Modifier.weight(1f).height(Metrics.chartHeight),
-                    color = Palette.metricRose,
-                    fill = true,
-                    selectionEnabled = true,
                 )
             }
             // X-axis: start (midnight) / midpoint / end of the selected day's window. Each bucket
@@ -855,6 +894,285 @@ private fun HeartRateTrendCard(
                 }
             }
         }
+    }
+}
+
+// MARK: - Overview HR chart (WHOOP-style day-in-review annotations)
+//
+// The 24h HR line — the shared index-spaced [LineChart] — with marker layers drawn ON TOP:
+//   (a) a sleep band shading the night's sleep span (indigo, behind the line conceptually but
+//       drawn under the marker chrome so labels stay legible),
+//   (b) a dashed Charge rule + label at wake time (sleep end), hidden while recovery calibrates,
+//   (c) a dashed Effort rule + label at "now" (the latest sample), routed through the SAME
+//       UnitFormatter.effortDisplay the Effort tile uses so it honours the 0–100 / 0–21 toggle (#268),
+//   (d) a small sport glyph at each workout's in-window HR peak.
+//
+// LineChart plots points by LIST INDEX (evenly spaced, no time axis), so each marker's wall-clock
+// time is mapped to a fractional list index by interpolating against the buckets' own timestamps —
+// markers then sit exactly on the rendered curve even when the strap history has gaps. Every layer
+// self-hides when its data is absent (no sleep, calibrating Charge, no workouts). Mirrors the macOS
+// OverviewHRChart (Packages/StrandDesign) in NOOP's own colour language. (PR #285)
+
+@Composable
+private fun OverviewHRChart(
+    buckets: List<HrBucket>,
+    bpm: List<Double>,
+    sleep: SleepSession?,
+    workouts: List<WorkoutRow>,
+    recovery: Double?,
+    strain: Double?,
+    effortScale: EffortScale,
+    modifier: Modifier,
+) {
+    // The line itself stays the existing shared component, unchanged — markers are a sibling overlay.
+    val minV = bpm.min()
+    val maxV = bpm.max()
+    val span = (maxV - minV).takeIf { it > 0.0 } ?: 1.0
+    val n = bpm.size
+
+    // Geometry constants copied verbatim from LineChart/pointsFor so overlay positions land on the curve.
+    val strokePx = 2.5f
+    val topPad = strokePx + 4f
+    val bottomPad = strokePx + 4f
+
+    // Plot pixel size, captured from the Box that wraps both the line and the overlay.
+    var plotW by remember { mutableStateOf(0f) }
+    var plotH by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+
+    // ── time → x helpers ──
+    // Fractional list index for a wall-clock unix-seconds time, interpolating between bucket
+    // timestamps; null when the time falls outside the loaded buckets.
+    fun fracIndexFor(ts: Long): Float? {
+        if (n < 2) return null
+        val first = buckets.first().bucket
+        val last = buckets.last().bucket
+        if (ts <= first) return 0f
+        if (ts >= last) return (n - 1).toFloat()
+        val hi = buckets.indexOfFirst { it.bucket >= ts }
+        if (hi <= 0) return 0f
+        val lo = hi - 1
+        val t0 = buckets[lo].bucket
+        val t1 = buckets[hi].bucket
+        val f = if (t1 > t0) (ts - t0).toFloat() / (t1 - t0).toFloat() else 0f
+        return lo + f
+    }
+    fun xFor(ts: Long): Float? {
+        val fi = fracIndexFor(ts) ?: return null
+        return if (n > 1) plotW * fi / (n - 1) else null
+    }
+    fun yForBpm(v: Double): Float {
+        val usableH = (plotH - topPad - bottomPad).coerceAtLeast(1f)
+        val norm = ((v - minV) / span).toFloat().coerceIn(0f, 1f)
+        return topPad + (1f - norm) * usableH
+    }
+
+    // ── derived marker model (self-hiding) ──
+    // Sleep band span clamped to the window; only drawn when it overlaps a visible stretch.
+    val sleepStartX = sleep?.let { xFor(it.startTs) }
+    val sleepEndX = sleep?.let { xFor(it.endTs) }
+    // Charge marker sits at wake (sleep end), else the window start; hidden while recovery is null.
+    val chargeX = recovery?.let { sleep?.let { s -> xFor(s.endTs) } ?: 0f }
+    // Effort marker pinned to the latest sample (right edge) when a strain exists.
+    val effortX = strain?.let { if (n > 1) plotW else null }
+
+    // One combined TalkBack description for the overlay layers, so the markers (which are otherwise
+    // small decorative pills) are announced. Only mentions the layers actually present.
+    val markerDescription = remember(sleep, recovery, strain, workouts, effortScale) {
+        buildList {
+            add("24-hour heart rate")
+            if (sleep != null) add("sleep band ${hrHoursMinutes((sleep.endTs - sleep.startTs).toInt())}")
+            if (recovery != null) add("${recovery.roundToInt()} percent Charge at wake")
+            if (strain != null) add("${UnitFormatter.effortDisplay(strain, effortScale)} Effort now")
+            if (workouts.isNotEmpty()) add("${workouts.size} workout${if (workouts.size == 1) "" else "s"} marked")
+        }.joinToString(", ")
+    }
+
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .onSizeChanged { plotW = it.width.toFloat(); plotH = it.height.toFloat() }
+            .semantics { contentDescription = markerDescription },
+    ) {
+        // 1) The HR line — unchanged shared component, tap-to-inspect intact.
+        LineChart(
+            values = bpm,
+            modifier = Modifier.fillMaxSize(),
+            color = Palette.metricRose,
+            fill = true,
+            selectionEnabled = true,
+        )
+
+        // 2) Band + dashed rules, drawn in one Canvas above the line.
+        if (plotW > 0f && plotH > 0f) {
+            val dash = remember { PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f) }
+            val wakeDash = remember { PathEffect.dashPathEffect(floatArrayOf(3f, 3f), 0f) }
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                // Sleep band — a translucent indigo region across the sleep span.
+                if (sleepStartX != null && sleepEndX != null && sleepEndX > sleepStartX) {
+                    drawRect(
+                        color = Palette.sleepDeep.copy(alpha = 0.30f),
+                        topLeft = Offset(sleepStartX, 0f),
+                        size = Size(sleepEndX - sleepStartX, size.height),
+                    )
+                    // Wake divider — the sleep→day boundary, so the band reads even before Charge calibrates.
+                    if (sleepEndX > 0f && sleepEndX < size.width) {
+                        drawLine(
+                            color = Palette.sleepLight.copy(alpha = 0.5f),
+                            start = Offset(sleepEndX, 0f),
+                            end = Offset(sleepEndX, size.height),
+                            strokeWidth = 1f,
+                            pathEffect = wakeDash,
+                        )
+                    }
+                }
+                // Charge rule at wake.
+                if (chargeX != null && recovery != null) {
+                    drawLine(
+                        color = Palette.recoveryColor(recovery).copy(alpha = 0.85f),
+                        start = Offset(chargeX.coerceIn(0f, size.width), 0f),
+                        end = Offset(chargeX.coerceIn(0f, size.width), size.height),
+                        strokeWidth = 1.5f,
+                        cap = StrokeCap.Round,
+                        pathEffect = dash,
+                    )
+                }
+                // Effort rule at now.
+                if (effortX != null && strain != null) {
+                    val x = (size.width - 1f).coerceIn(0f, size.width)
+                    drawLine(
+                        color = Palette.strainColor(strain).copy(alpha = 0.85f),
+                        start = Offset(x, 0f),
+                        end = Offset(x, size.height),
+                        strokeWidth = 1.5f,
+                        cap = StrokeCap.Round,
+                        pathEffect = dash,
+                    )
+                }
+            }
+
+            // 3) Marker labels + sport glyphs — positioned composables (crisp text/icons vs Canvas).
+            val topPadDp = 10.dp
+            // Sleep duration pill at the band's leading edge.
+            if (sleepStartX != null && sleep != null && (sleepEndX ?: 0f) > (sleepStartX)) {
+                val durLabel = hrHoursMinutes((sleep.endTs - sleep.startTs).toInt())
+                ChartMarkerPill(
+                    text = durLabel,
+                    color = Palette.sleepLight,
+                    leadingIcon = Icons.Filled.Bedtime,
+                    modifier = Modifier.markerOffset(sleepStartX, density, topPadDp),
+                )
+            }
+            if (chargeX != null && recovery != null) {
+                ChartMarkerPill(
+                    text = "${recovery.roundToInt()}% Charge",
+                    color = Palette.recoveryColor(recovery),
+                    modifier = Modifier.markerOffset(chargeX, density, topPadDp),
+                )
+            }
+            if (effortX != null && strain != null) {
+                ChartMarkerPill(
+                    text = "${UnitFormatter.effortDisplay(strain, effortScale)} Effort",
+                    color = Palette.strainColor(strain),
+                    modifier = Modifier.markerOffset(plotW, density, topPadDp, alignEnd = true),
+                )
+            }
+            // Sport glyph at each workout's in-window HR peak.
+            workouts.forEach { w ->
+                val peak = hrPeakIn(buckets, w.startTs, w.endTs)
+                if (peak != null) {
+                    val px = xFor(peak.bucket)
+                    if (px != null) {
+                        val py = yForBpm(peak.avgBpm)
+                        WorkoutGlyph(
+                            icon = sportIcon(w.sport),
+                            modifier = Modifier.glyphOffset(px, py, plotW, plotH, density),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** "H:MM" for a duration in seconds (e.g. a 6h06m night → "6:06"). Mirrors TodayView.hoursMinutes. */
+private fun hrHoursMinutes(seconds: Int): String {
+    val h = (if (seconds < 0) 0 else seconds) / 3600
+    val m = ((if (seconds < 0) 0 else seconds) % 3600) / 60
+    return "$h:${m.toString().padStart(2, '0')}"
+}
+
+/** The peak HR bucket whose timestamp falls inside [start, end]; null when none overlap. */
+private fun hrPeakIn(buckets: List<HrBucket>, start: Long, end: Long): HrBucket? =
+    buckets.filter { it.bucket in start..end }.maxByOrNull { it.avgBpm }
+
+/** Offset a marker pill near plot-x [x] (px). End-aligned markers (Effort) tuck under the right
+ *  edge; the rest centre roughly on their anchor. Coerced to ≥ 0 so a pill never starts off-screen. */
+private fun Modifier.markerOffset(
+    x: Float,
+    density: androidx.compose.ui.unit.Density,
+    topPad: androidx.compose.ui.unit.Dp,
+    alignEnd: Boolean = false,
+): Modifier = this.offset(
+    x = with(density) {
+        // Approx pill half-width for edge clamping (footnote ≈ 7px/char + chrome).
+        val xDp = x.toDp()
+        if (alignEnd) (xDp - 70.dp).coerceAtLeast(0.dp) else (xDp - 36.dp).coerceAtLeast(0.dp)
+    },
+    y = topPad,
+)
+
+/** Position a 22dp sport glyph centred on a plot point (px), clamped inside the plot. */
+private fun Modifier.glyphOffset(
+    x: Float,
+    y: Float,
+    plotW: Float,
+    plotH: Float,
+    density: androidx.compose.ui.unit.Density,
+): Modifier = this.offset(
+    x = with(density) { (x.toDp() - 11.dp).coerceIn(0.dp, (plotW.toDp() - 22.dp).coerceAtLeast(0.dp)) },
+    y = with(density) { (y.toDp() - 26.dp).coerceIn(0.dp, (plotH.toDp() - 22.dp).coerceAtLeast(0.dp)) },
+)
+
+/** Small caps read-out pill for the Charge / Effort / sleep-duration markers. */
+@Composable
+private fun ChartMarkerPill(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Palette.surfaceOverlay.copy(alpha = 0.92f))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (leadingIcon != null) {
+            Icon(leadingIcon, contentDescription = null, tint = color, modifier = Modifier.size(10.dp))
+        }
+        Text(text, style = NoopType.footnote, color = color, maxLines = 1)
+    }
+}
+
+/** Sport glyph in a tinted badge, anchored above a workout's HR peak. */
+@Composable
+private fun WorkoutGlyph(icon: ImageVector, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Palette.strain033),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Palette.textPrimary,
+            modifier = Modifier.size(13.dp),
+        )
     }
 }
 

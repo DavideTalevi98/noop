@@ -5,7 +5,19 @@ import StrandDesign
 struct ScreenScaffold<Content: View>: View {
     let title: LocalizedStringKey
     var subtitle: LocalizedStringKey? = nil
+    /// Optional pull-to-refresh hook. When set, the scroll view becomes `.refreshable`
+    /// (the standard iPhone gesture for a data dashboard). Defaults to nil so callers that
+    /// don't opt in are unaffected — and on macOS `.refreshable` surfaces no affordance.
+    var onRefresh: (() async -> Void)? = nil
     @ViewBuilder var content: () -> Content
+
+    // iPad runs the shared screens full-screen, where an uncapped column gives 120+ character lines
+    // in landscape. On iOS regular width (iPad) the readable column is capped + centred; compact
+    // (iPhone) and macOS are unchanged. macOS also reports a horizontalSizeClass, so the cap is gated
+    // by `#if os(iOS)` — a runtime size-class check alone would also narrow the Mac detail pane.
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
 
     var body: some View {
         ScrollView {
@@ -19,21 +31,53 @@ struct ScreenScaffold<Content: View>: View {
                 content()
             }
             .padding(28)
+            #if os(iOS)
+            // iPad: cap the readable column, then centre it in the full-width scroll viewport.
+            // iPhone (.compact): the inner frame is .infinity/.leading, identical to before.
+            .frame(maxWidth: hSizeClass == .regular ? 700 : .infinity,
+                   alignment: hSizeClass == .regular ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+            #else
             .frame(maxWidth: .infinity, alignment: .leading)
+            #endif
         }
         .background(StrandPalette.surfaceBase)
+        .modifier(RefreshableIfNeeded(onRefresh: onRefresh))
     }
 }
 
-/// Placeholder body for screens the design agents are still building.
+/// Applies `.refreshable` only when a refresh hook is provided. A ViewModifier (rather than an
+/// inline `if`) keeps the two branches the same opaque type, and means nil callers — every macOS
+/// screen — never attach the modifier at all.
+private struct RefreshableIfNeeded: ViewModifier {
+    let onRefresh: (() async -> Void)?
+    func body(content: Content) -> some View {
+        if let onRefresh {
+            content.refreshable { await onRefresh() }
+        } else {
+            content
+        }
+    }
+}
+
+/// Empty / pending-data placeholder for screens still gathering history. Mirrors `DataPendingNote`'s
+/// icon-anchored card so an empty screen reads as an intentional state rather than a stray text box.
 struct ComingSoon: View {
     let what: LocalizedStringKey
+    var symbol: String = "sparkles"
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Coming together")
-                .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-            Text(what)
-                .font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.accent)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Coming together")
+                    .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
+                Text(what)
+                    .font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(20).frame(maxWidth: .infinity, alignment: .leading)
         .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 14))

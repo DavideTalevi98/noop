@@ -144,6 +144,7 @@ struct CompareView: View {
 
     private let maxSelection = 4
     private let minSelection = 2
+    private var loadTaskID: String { "\(selectionKey)|\(repo.refreshSeq)" }
 
     var body: some View {
         ScreenScaffold(title: "Compare", subtitle: "Overlay signals, draw conclusions.") {
@@ -166,7 +167,7 @@ struct CompareView: View {
             }
         }
         .task { await loadIfNeeded() }
-        .task(id: selectionKey) {
+        .task(id: loadTaskID) {
             await loadSelected()
             refreshPairCache(activeSeries)
         }
@@ -225,6 +226,17 @@ struct CompareView: View {
         }
     }
 
+    /// How the overlay subtitle tells the user to read real (un-normalized) values.
+    /// The chart axis is normalized, so the only readout of real numbers is the
+    /// crosshair tooltip — driven by pointer hover on macOS, by tap/drag on iOS.
+    private var inspectHint: String {
+        #if os(iOS)
+        return "tap or drag for real values"
+        #else
+        return "hover for real values"
+        #endif
+    }
+
     /// "N readings · <range>" caption near the control, flagging any auto-widen.
     private var rangeCaption: String {
         let series = activeSeries
@@ -247,9 +259,11 @@ struct CompareView: View {
         selected = Array(picks.prefix(maxSelection))
     }
 
-    /// Load (and cache) the full history for any selected metric not yet fetched.
+    /// Load the full history for the selected metrics. Selection is capped at four,
+    /// so a repository refresh can safely replace cached rows instead of leaving
+    /// Compare on a stale pre-sync snapshot.
     private func loadSelected() async {
-        for metric in selected where fullSeries[metric.id] == nil {
+        for metric in selected {
             let s = await repo.resolvedSeries(key: metric.key, source: metric.source).values
             fullSeries[metric.id] = s
         }
@@ -361,8 +375,8 @@ struct CompareView: View {
             ChartCard(
                 title: "Normalized overlay",
                 subtitle: anyWidened
-                    ? "Min–max normalized · sparse series widened past \(range.phrase) · hover for real values"
-                    : "Each line min–max normalized within \(range.phrase) · hover for real values",
+                    ? "Min–max normalized · sparse series widened past \(range.phrase) · \(inspectHint)"
+                    : "Each line min–max normalized within \(range.phrase) · \(inspectHint)",
                 trailing: "\(nonEmpty.count) series"
             ) {
                 // The overlay is min–max NORMALIZED 0–1, so the Effort scale never touches the line shape;
@@ -727,6 +741,22 @@ private struct OverlayChart: View {
                     case .ended: hoverX = nil
                     }
                 }
+                #if os(iOS)
+                // Touch input never fires onContinuousHover (pointer-only), so on iPhone /
+                // iPad-without-pointer the crosshair + value tooltip would be unreachable.
+                // Drive the same hoverX via tap (single touch-down) and drag-to-scrub across
+                // days. minimumDistance:0 keeps the first touch responsive; a clearly vertical
+                // pan is still claimed by the parent ScrollView.
+                .gesture(
+                    SpatialTapGesture(coordinateSpace: .local)
+                        .onEnded { hoverX = $0.location.x }
+                        .exclusively(before:
+                            DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                                .onChanged { hoverX = $0.location.x }
+                                .onEnded { _ in hoverX = nil }
+                        )
+                )
+                #endif
             }
         }
         .frame(height: height)

@@ -958,7 +958,8 @@ private fun grouped(v: Double): String = String.format(Locale.US, "%,d", v.round
 
 // MARK: - Sport icons (Material equivalents of the SF Symbols used on macOS)
 
-private fun sportIcon(sport: String): ImageVector {
+// internal (not private): reused by the Today Overview-HR chart to glyph each workout at its HR peak.
+internal fun sportIcon(sport: String): ImageVector {
     val s = sport.lowercase()
     return when {
         s.contains("run") -> Icons.Filled.DirectionsRun

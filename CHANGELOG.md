@@ -17,6 +17,22 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 2.13.0 — A big iPhone update, plus a WHOOP-style Today chart for everyone
+
+- **New:** a **WHOOP-style Overview chart** on Today — the 24-hour heart-rate line now carries a sleep
+  band, your Charge at wake, your Effort at now, and a sport glyph at each workout's HR peak (Mac,
+  iPhone and Android). Thanks @rad182.
+- **New:** the **Sleep** screen shows your **asleep and woke times** at a glance. Thanks @vulnix0x4.
+- **New (iPhone):** two-way **Apple Health** you can turn on (now reaching strap-only users), a full
+  **accessibility pass** (VoiceOver, Reduce Motion, 44pt touch targets), **pull-to-refresh**, the screen
+  staying awake plus haptics during Breathe/Interval sessions, a **Siri & Shortcuts** screen, a readable
+  iPad layout, and background strap reconnect via CoreBluetooth state restoration. Thanks @vulnix0x4.
+- **Fixed:** Apple Health workout counts, secondary screens now refresh after a sync, the Compare chart
+  is readable by touch, 'Mark a Moment' stamps the right time, and a long list of iPhone copy/layout
+  polish. Thanks @vulnix0x4 and @khalilkm01.
+
+---
+
 ## 2.12.0 — Continuous HRV capture (opt-in): sharper overnight HRV, recovery and sleep
 
 - **New (opt-in):** **Continuous HRV capture.** Your strap streams dense beat-to-beat heart-rate

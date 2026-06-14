@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -301,6 +303,12 @@ private fun Hero(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         NightNavHeader(nightOffset, lastIndex, clock, onNavigate, session, onUpdateTimes, onPickNightDate)
+        // The night's clock window — when you fell asleep and when you woke — as its own clearly
+        // labelled row. These were only ever in the nav-header's trailing caption, which truncates
+        // between the two chevrons on a phone, so in practice the two times people look for first
+        // were effectively hidden. Shown for every night that has a session (including the stage-less
+        // stub, where it's the only thing the hero can say). Mirrors iOS SleepView.sleepWindowRow.
+        session?.let { SleepWindowRow(it) }
         if (display == null) {
             // Honest fallback: this night recorded no usable stage data — never silently
             // substitute another night's hypnogram. (#160)
@@ -358,6 +366,59 @@ private fun Hero(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * "Asleep / Woke" — the fell-asleep and woke clock times for the navigated night, read off the
+ * session's onset (startTs) and wake (endTs) timestamps, each with a moon / sun glyph. Sits in the
+ * hero between the night-nav header and the stage card so the two times people glance for first are
+ * always visible, not truncated in the header caption. On-brand (surfaceRaised block, tokens) and
+ * combined into one TalkBack element. Mirrors iOS SleepView.sleepWindowRow (PR #289).
+ */
+@Composable
+private fun SleepWindowRow(session: SleepSession) {
+    val asleep = clockTimeLabel(session.startTs)
+    val woke = clockTimeLabel(session.endTs)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Metrics.cornerSm))
+            .background(Palette.surfaceRaised)
+            .padding(horizontal = Metrics.space16, vertical = Metrics.space12)
+            .semantics(mergeDescendants = true) { contentDescription = "Fell asleep at $asleep, woke at $woke" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SleepTime(icon = Icons.Filled.Bedtime, label = "Asleep", value = asleep)
+        Spacer(Modifier.width(Metrics.space12))
+        Box(
+            modifier = Modifier
+                .height(30.dp)
+                .width(Metrics.divider)
+                .background(Palette.hairline),
+        )
+        Spacer(Modifier.width(Metrics.space12))
+        SleepTime(icon = Icons.Filled.WbSunny, label = "Woke", value = woke)
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SleepTime(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Metrics.space10),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null, // row carries the combined description
+            tint = Palette.accent,
+            modifier = Modifier.size(20.dp),
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(Metrics.space2)) {
+            Overline(label, color = Palette.textTertiary)
+            Text(value, style = NoopType.number(22f), color = Palette.textPrimary, maxLines = 1)
         }
     }
 }
@@ -1563,6 +1624,10 @@ private fun sessionClockLabel(session: SleepSession): String {
 /** Unix seconds → "YYYY-MM-DD" in the DEVICE timezone (vs AnalyticsEngine.dayString = UTC). */
 private fun localDayString(ts: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(ts * 1000L))
+
+/** Unix seconds → a local wall-clock "HH:mm" (same 24h formatting the nav-header span uses). */
+private fun clockTimeLabel(ts: Long): String =
+    SimpleDateFormat("HH:mm", Locale.US).format(Date(ts * 1000L))
 
 /** One persisted per-epoch stage segment (wall-clock unix seconds). */
 internal data class PersistedSegment(val start: Long, val end: Long, val stage: String)

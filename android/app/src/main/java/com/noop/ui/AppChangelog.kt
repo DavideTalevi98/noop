@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "2.12.0"
+    const val CURRENT_VERSION = "2.13.0"
 
     data class Release(
         val version: String,
@@ -36,6 +36,16 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "2.13.0",
+            title = "A WHOOP-style Today chart, clearer sleep times — and a big iPhone update",
+            date = "June 2026",
+            items = listOf(
+                "New: a **WHOOP-style Overview chart** on Today — your 24-hour heart rate now carries a sleep band, your Charge at wake, your Effort now, and a glyph at each workout's peak. Thanks @rad182.",
+                "New: the **Sleep** screen now shows your **asleep and woke times** at a glance.",
+                "This release also brought a large iPhone + Mac update — an accessibility pass, two-way Apple Health, pull-to-refresh, Siri shortcuts and a lot of polish — with the cross-platform pieces brought here too. Thanks @vulnix0x4, @khalilkm01 and @rad182.",
+            ),
+        ),
         Release(
             version = "2.12.0",
             title = "Continuous HRV capture — sharper overnight HRV, recovery and sleep",

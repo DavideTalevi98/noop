@@ -29,7 +29,6 @@ import WhoopStore
 
 struct StressView: View {
     @EnvironmentObject var repo: Repository
-    @EnvironmentObject var live: LiveState
 
     /// The stored 0–3 stress series ("my-whoop"), oldest→newest. Empty → derive.
     @State private var storedSeries: [(day: String, value: Double)] = []
@@ -63,7 +62,7 @@ struct StressView: View {
         }
         .onAppear { rebuildModelIfNeeded() }
         .onChange(of: repo.days) { _ in rebuildModelIfNeeded() }
-        .task { await load() }
+        .task(id: repo.refreshSeq) { await load() }
     }
 
     private func load() async {

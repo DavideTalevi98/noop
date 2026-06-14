@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "2.12.0"
+    static let currentVersion = "2.13.0"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,18 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "2.13.0",
+            title: "A big iPhone update — and a WHOOP-style Today chart for everyone",
+            date: "June 2026",
+            items: [
+                "New: a **WHOOP-style Overview chart** on Today — your 24-hour heart rate now carries a sleep band, your Charge at wake, your Effort now, and a glyph at each workout's peak. Thanks @rad182.",
+                "New: the **Sleep** screen now shows your **asleep and woke times** at a glance. Thanks @vulnix0x4.",
+                "New (iPhone): **two-way Apple Health** you can actually turn on — enable it on the Apple Health screen and your NOOP recovery, HRV, resting HR and more flow to Health (now including strap-only users), with the Apple Health screen finally populating. Thanks @vulnix0x4.",
+                "New (iPhone): a proper **accessibility pass** — VoiceOver reads the charts, tiles and controls, **Reduce Motion** is respected throughout, and touch targets meet the 44pt minimum. Thanks @vulnix0x4.",
+                "New (iPhone): **pull-to-refresh** on the main screens, the **screen stays awake** plus **haptics** during Breathe and Interval sessions, a **Siri & Shortcuts** screen, a readable iPad layout, and background strap reconnect via CoreBluetooth state restoration.",
+                "Fixed (iPhone): Apple Health workout counts, secondary screens now refresh after a sync, the Compare chart is readable by touch, 'Mark a Moment' stamps the right time, and a long list of platform-correct copy + layout polish. Thanks @vulnix0x4 and @khalilkm01.",
+            ]),
         Release(
             version: "2.12.0",
             title: "Continuous HRV capture — sharper overnight HRV, recovery and sleep",

@@ -27,7 +27,9 @@ struct WorkoutsView: View {
     /// All loaded sessions, newest first. Seedable for previews.
     @State private var allRows: [WorkoutRow]
     @State private var loaded: Bool
+    @State private var seededInitialRange = false
     @State private var range: Range = .all
+    private let usesPreviewRows: Bool
 
     /// The add/edit sheet target: `.some(nil)` = add a new workout, `.some(row)` = edit `row`,
     /// `nil` = sheet closed. Wrapped in Identifiable so `.sheet(item:)` can drive presentation.
@@ -42,10 +44,12 @@ struct WorkoutsView: View {
     init(previewRows: [WorkoutRow]? = nil) {
         _allRows = State(initialValue: previewRows ?? [])
         _loaded = State(initialValue: previewRows != nil)
+        usesPreviewRows = previewRows != nil
     }
 
     var body: some View {
-        ScreenScaffold(title: "Workouts", subtitle: "Every session, threaded together.") {
+        ScreenScaffold(title: "Workouts", subtitle: "Every session, threaded together.",
+                       onRefresh: { await repo.refresh() }) {
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: 16) {
                     ComingSoon(what: loaded
@@ -74,16 +78,23 @@ struct WorkoutsView: View {
                 sessionsSection(rows: windowRows)
             }
         }
-        .task {
-            guard !loaded else { return }
+        .task(id: repo.refreshSeq) {
+            guard !usesPreviewRows else { return }
             let r = await repo.workoutRows()
             allRows = r
+            let wasLoaded = loaded
             loaded = true
-            range = defaultRange(for: r)
+            if !wasLoaded {
+                range = defaultRange(for: r)
+                seededInitialRange = true
+            }
         }
         .onAppear {
             // Preview-seeded rows skip `.task`; still choose a range that has data.
-            if loaded { range = defaultRange(for: allRows) }
+            if loaded && !seededInitialRange {
+                range = defaultRange(for: allRows)
+                seededInitialRange = true
+            }
         }
         .sheet(item: $sheet) { target in
             ManualWorkoutSheet(editing: target.editing) { row, replacing in
@@ -657,35 +668,9 @@ struct WorkoutsView: View {
 
     // MARK: - Sport icons
 
-    private func sportIcon(_ sport: String) -> String {
-        let s = sport.lowercased()
-        switch true {
-        case s.contains("run"):                         return "figure.run"
-        case s.contains("walk") || s.contains("hike"):  return "figure.walk"
-        case s.contains("cycl") || s.contains("bike") || s.contains("ride"):
-                                                         return "figure.outdoor.cycle"
-        case s.contains("swim"):                        return "figure.pool.swim"
-        case s.contains("row"):                         return "figure.rower"
-        case s.contains("yoga"):                        return "figure.yoga"
-        case s.contains("strength") || s.contains("weight") || s.contains("lift"):
-                                                         return "dumbbell.fill"
-        case s.contains("box"):                         return "figure.boxing"
-        case s.contains("hiit") || s.contains("functional"):
-                                                         return "figure.highintensity.intervaltraining"
-        case s.contains("elliptical"):                  return "figure.elliptical"
-        case s.contains("ski"):                         return "figure.skiing.downhill"
-        case s.contains("tennis"):                      return "figure.tennis"
-        case s.contains("golf"):                        return "figure.golf"
-        case s.contains("soccer") || s.contains("football"):
-                                                         return "figure.soccer"
-        case s.contains("basketball"):                  return "figure.basketball"
-        case s.contains("dance"):                       return "figure.dance"
-        case s.contains("climb"):                       return "figure.climbing"
-        case s.contains("pilates"):                     return "figure.pilates"
-        case s.contains("meditat"):                     return "figure.mind.and.body"
-        default:                                        return "figure.mixed.cardio"
-        }
-    }
+    // Sport → SF Symbol now lives in StrandDesign (`sportSymbol`) so the Today HR
+    // overview annotates workouts with the same icons. Thin forwarder keeps call sites.
+    private func sportIcon(_ sport: String) -> String { sportSymbol(sport) }
 
     // MARK: - Row + column metrics (uniform)
 
