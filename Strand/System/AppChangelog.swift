@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "3.9.1"
+    static let currentVersion = "4.0.0"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,16 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "4.0.0",
+            title: "Your Fitness Age, Vitality & Body Age",
+            date: "June 2026",
+            items: [
+                "**Fitness Age — a weekly number for how fit your heart is.** NOOP now estimates your **Fitness Age** from your resting heart rate and recent activity, and shows it against your real age — “35, four years younger than your calendar age.” Built on the published Nes/HUNT VO₂max model. Tap **“How accurate is this?”** to see exactly which of your inputs went in, grouped by what each one unlocks — we’re honest that it’s a fitness comparison, not a biological age.",
+                "**Vitality + Body Age — your longevity number.** A weekly **0–100 Vitality** score and a **Body Age in years**, built the way WHOOP’s Healthspan is: your resting HR, sleep duration + regularity, HRV, and activity, each weighed against published all-cause-mortality research, then turned into “how old your habits make your body.” It even tells you the **one thing helping most** and the **one holding you back**. A wellness trend — **never** a clinical or medical age.",
+                "**Optional: see your estimated VO₂max.** Add your waist measurement in Settings and NOOP will also show an estimated VO₂max alongside your Fitness Age. (Your Fitness Age itself never needs it.)",
+                "**Honest by design.** Every new number carries a ± band and a plain “this is a wellness estimate, not a clinical age” line. These build over a week or two of wear and sharpen as NOOP learns your baseline.",
+            ]),
         Release(
             version: "3.9.1",
             title: "A round of fixes — reconnect, exports & Health setup",

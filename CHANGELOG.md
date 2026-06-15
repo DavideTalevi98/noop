@@ -17,6 +17,30 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 4.0.0 — Your Fitness Age, Vitality and Body Age
+
+NOOP's new **Age & Longevity engine** — the headline of v4. Three new on-device numbers, all computed
+from data you already have, all framed honestly as wellness estimates rather than clinical/biological ages.
+
+- **Fitness Age.** A weekly estimate of how fit your heart is versus your calendar age, from your resting
+  heart rate and recent activity, using the published Nes/HUNT non-exercise VO₂max model (waist-circumference
+  variant; reproduced in JAHA 2020 / corroborated by CERG). The headline number cancels out body size, so it
+  needs nothing but your age, sex, resting HR and activity coverage; a **"How accurate is this?"** checklist
+  shows exactly which inputs went in, grouped by what each unlocks. ±5-yr band, never a biological age.
+- **Vitality + Body Age.** A weekly **0–100 Vitality** score and a **Body Age in years**, built the way
+  WHOOP's Healthspan is — each wearable input (resting HR, sleep duration + regularity, HRV vs the age norm,
+  activity) weighed against published all-cause-mortality hazard ratios, overlap-corrected, and converted to a
+  years-of-aging offset via the Gompertz "~8 years per doubling" rule. Surfaces the single factor **helping most**
+  and the one **holding you back**. A wellness trend, gated on a minimum of inputs — **not** a clinical or
+  medical age. (Hazard coefficients are conservative published values; refined over time.)
+- **Optional estimated VO₂max.** Add an optional waist measurement in Settings to also see an estimated VO₂max
+  beside your Fitness Age (the Fitness Age itself never needs it).
+- All three are computed weekly on-device (keyed to each week's Saturday), appear on the Health tab and in the
+  metric Explorer + trend charts, and stay entirely offline. Engines are unit-tested with parity locked between
+  the macOS/iOS and Android implementations.
+
+---
+
 ## 3.9.1 — A round of fixes: reconnect, exports and Health setup
 
 - **Mac & iPhone reconnect on their own.** If your strap briefly dropped out of range, or a connection attempt failed mid-handshake (a weak-signal encrypted handshake on a 5/MG at the edge of range), the app used to sit idle until you reconnected by hand — the disconnect path rescheduled a rescan, but the failed-connect path never did. It now retries on its own with a capped exponential back-off (3s → 6s → 12s … up to 60s) and stops the instant it reconnects. macOS/iOS. Thanks @phsycology (#414).
