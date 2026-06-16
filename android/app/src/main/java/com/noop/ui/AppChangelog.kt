@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "4.2.13"
+    const val CURRENT_VERSION = "4.3.0"
 
     data class Release(
         val version: String,
@@ -36,6 +36,14 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "4.3.0",
+            title = "Light theme — NOOP in warm paper & gold",
+            date = "June 2026",
+            items = listOf(
+                "**NOOP now has a full Light theme, and you can switch any time.** Settings → Appearance lets you pick **System** (follow your phone), **Light**, or **Dark**. The new Light look is \"warm paper & gold\" — a soft warm-white canvas with crisp navy-ink text and the signature gold deepened so it stays legible on white. Every surface was re-done for it, not just inverted: the ring gauges, frosted cards (now lifted with a soft shadow instead of a glow), charts, the scenic hero, the home-screen widget and even the status bar all adapt. Dark stays exactly as it was. Same data, same layout — your choice of finish.",
+            ),
+        ),
         Release(
             version = "4.2.13",
             title = "Effort explains a calm-day zero — and scores on the 5.0/MG",

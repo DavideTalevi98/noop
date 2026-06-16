@@ -17,6 +17,10 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 4.3.0 — Light theme: NOOP in warm paper & gold (all platforms)
+
+- **NOOP now has a full Light theme, switchable any time.** Settings → Appearance offers **System** (follow your phone/Mac), **Light**, or **Dark**. The new Light look is "warm paper & gold" — a soft warm-white canvas with crisp navy-ink text and the brand gold deepened so it stays legible on white. Every surface was re-done for it rather than inverted: the ring gauges, the frosted cards (lifted with a soft drop shadow instead of a glow), the charts, the scenic hero, the home-screen / Dynamic Island widgets and the status bar all adapt. **Dark is unchanged.** Architecture note for the curious: on Apple every palette token became a dynamic `Color(light:dark:)`, and on Android a snapshot-state token set behind the `Palette` facade — so the whole UI re-resolves from one toggle with no per-screen rework.
+
 ## 4.2.13 — Effort explains a calm-day zero — and scores on the 5.0/MG (all platforms)
 
 - **Effort now explains a calm-day zero instead of just showing "0.0".** Effort is *cardiovascular* load — it only builds while your heart rate is up in your effort zone (roughly the top half of your heart-rate reserve, often ~120 bpm and above). On a genuinely easy day your heart rate never gets there, so the honest answer really is near zero — the same way a WHOOP low-strain day reads low. The number was right, but a bare "0.0" looked broken, so Today now adds a short line explaining it. We also fixed the **WHOOP 5.0/MG** case where Effort could sit un-scored for hours: the 5.0/MG sends live heart rate far less often than a 4.0, and the gauge needed a fixed *number* of readings before it would score — now it scores once it has enough *time* of heart-rate coverage, so a steady 5.0/MG stream counts and the gauge stops falling back to a stale value. Effort still only rewards real exertion — nothing is invented. Thanks **@darylbleach** and **@phsycology** (#482, #480).
