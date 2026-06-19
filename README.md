@@ -18,12 +18,15 @@
 </p>
 
 <p align="center">
-  <a href="https://noop.fans/NoopApp/noop/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=latest&color=E8B84B"></a>
-  <a href="https://noop.fans/NoopApp/noop/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/NoopApp/noop/total?style=flat-square&label=downloads&color=C8902F"></a>
-  <a href="https://noop.fans/NoopApp/noop/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NoopApp/noop?style=flat-square&color=E8B84B"></a>
-  <a href="https://noop.fans/NoopApp/noop/issues?q=is%3Aissue+is%3Aclosed"><img alt="Issues resolved" src="https://img.shields.io/github/issues-closed/NoopApp/noop?style=flat-square&label=resolved&color=C8902F"></a>
-  <a href="https://noop.fans/NoopApp/noop/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/NoopApp/noop?style=flat-square&label=last%20commit&color=6B737B"></a>
+  <a href="https://noop.fans/NoopApp/noop/releases/latest"><img alt="Latest release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Frelease.json&style=flat-square"></a>
+  <a href="https://noop.fans/NoopApp/noop/releases"><img alt="Total downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Fdownloads.json&style=flat-square"></a>
+  <a href="https://noop.fans/NoopApp/noop/stars"><img alt="Stars" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Fstars.json&style=flat-square"></a>
 </p>
+
+<p align="center">
+  <a href="#keeping-noop-alive"><img alt="Total downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Fdownloads.json&style=for-the-badge&color=C8902F"></a>
+</p>
+<p align="center"><sub><b>Every one of those downloads costs us real money</b> &mdash; development time and server bills. NOOP is free, account-free and ad-free, and always will be. If it&rsquo;s earned a place on your wrist, <a href="#keeping-noop-alive"><b>chip in the price of a coffee&nbsp;&#9749;</b></a> &mdash; it genuinely keeps the lights on.</sub></p>
 
 <p align="center">
   <a href="#keeping-noop-alive">♥&nbsp;Support</a> ·
@@ -82,10 +85,10 @@ Each address also has a scan-to-donate **QR code** in the app under **Support** 
 Pre-built apps you can run right now:
 
 <p>
-  <a href="https://noop.fans/NoopApp/noop/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=version&color=E8B84B"></a>
-  <img alt="Total downloads" src="https://img.shields.io/github/downloads/NoopApp/noop/total?style=flat-square&label=total%20downloads&color=C8902F">
-  <img alt="Downloads of this release" src="https://img.shields.io/github/downloads/NoopApp/noop/latest/total?style=flat-square&label=this%20release&color=C8902F">
-  <img alt="Released" src="https://img.shields.io/github/release-date/NoopApp/noop?style=flat-square&label=released&color=6B737B">
+  <a href="https://noop.fans/NoopApp/noop/releases/latest"><img alt="Version" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Frelease.json&style=flat-square"></a>
+  <img alt="Total downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Fdownloads.json&style=flat-square">
+  <img alt="Downloads of this release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Fthisrelease.json&style=flat-square">
+  <img alt="Released" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fnoop.fans%2FNoopApp%2Fnoop%2Fraw%2Fbranch%2Fmain%2Fdocs%2Fstats%2Freleased.json&style=flat-square">
 </p>
 
 | Platform | Build | Notes |
