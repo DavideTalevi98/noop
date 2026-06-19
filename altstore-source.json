@@ -18,6 +18,15 @@
       "screenshotURLs": [],
       "versions": [
         {
+          "version": "5.1.0",
+          "buildVersion": "129",
+          "date": "2026-06-19",
+          "localizedDescription": "A cleaner home — refreshed design, a new Updates inbox, and an optional profile photo.",
+          "downloadURL": "https://noop.fans/NoopApp/noop/releases/download/v5.1.0/NOOP-v5.1.0-ios.ipa",
+          "size": 9212393,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "5.0.1",
           "buildVersion": "128",
           "date": "2026-06-19",
@@ -793,12 +802,12 @@
           "NSHealthUpdateUsageDescription": "NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it."
         }
       },
-      "version": "5.0.1",
-      "buildVersion": "128",
+      "version": "5.1.0",
+      "buildVersion": "129",
       "versionDate": "2026-06-19",
-      "versionDescription": "NOOP v5.0.1 — stability & polish for the v5 release.",
-      "downloadURL": "https://noop.fans/NoopApp/noop/releases/download/v5.0.1/NOOP-v5.0.1-ios.ipa",
-      "size": 9101681,
+      "versionDescription": "A cleaner home — refreshed design, a new Updates inbox, and an optional profile photo.",
+      "downloadURL": "https://noop.fans/NoopApp/noop/releases/download/v5.1.0/NOOP-v5.1.0-ios.ipa",
+      "size": 9212393,
       "minOSVersion": "17.0"
     }
   ],
