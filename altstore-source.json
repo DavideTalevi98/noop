@@ -18,6 +18,15 @@
       "screenshotURLs": [],
       "versions": [
         {
+          "version": "5.2.5",
+          "buildVersion": "136",
+          "date": "2026-06-19",
+          "localizedDescription": "WHOOP 5/MG re-pairing fix: Remove device now releases the strap (#78).",
+          "downloadURL": "https://noop.fans/NoopApp/noop/releases/download/v5.2.5/NOOP-v5.2.5-ios.ipa",
+          "size": 9203303,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "5.2.4",
           "buildVersion": "135",
           "date": "2026-06-19",
@@ -847,12 +856,12 @@
           "NSHealthUpdateUsageDescription": "NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it."
         }
       },
-      "version": "5.2.4",
-      "buildVersion": "135",
+      "version": "5.2.5",
+      "buildVersion": "136",
       "versionDate": "2026-06-19",
-      "versionDescription": "Today-card layout tidy-up (#69).",
-      "downloadURL": "https://noop.fans/NoopApp/noop/releases/download/v5.2.4/NOOP-v5.2.4-ios.ipa",
-      "size": 9202690,
+      "versionDescription": "WHOOP 5/MG re-pairing fix: Remove device now releases the strap (#78).",
+      "downloadURL": "https://noop.fans/NoopApp/noop/releases/download/v5.2.5/NOOP-v5.2.5-ios.ipa",
+      "size": 9203303,
       "minOSVersion": "17.0"
     }
   ],
