@@ -9,7 +9,10 @@ let package = Package(
         .executable(name: "noop-local-access", targets: ["noop-local-access"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
+        // Supply-chain: pinned EXACT (not `from:`) so a clean resolve can't auto-pull a newer —
+        // potentially compromised — upstream release. Must match the same exact version in the
+        // other Packages/*/Package.swift and project.yml, or SPM resolution fails. Bump deliberately.
+        .package(url: "https://github.com/groue/GRDB.swift.git", exact: "6.29.3"),
     ],
     targets: [
         .target(

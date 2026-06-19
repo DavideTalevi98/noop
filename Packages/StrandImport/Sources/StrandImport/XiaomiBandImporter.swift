@@ -269,9 +269,18 @@ public struct XiaomiBandImporter {
     // JSON value coercion — Mi Fitness stores numbers as either Int or Double.
     static func intVal(_ v: [String: Any], _ k: String) -> Int? {
         if let n = v[k] as? Int { return n }
-        if let d = v[k] as? Double { return Int(d) }
-        if let n = v[k] as? NSNumber { return n.intValue }
+        // Crafted-import-crash guard: Int(d) / NSNumber.intValue trap on non-finite
+        // or out-of-range values (e.g. 1e308 / inf / nan in a hostile JSON). Drop-and-skip.
+        if let d = v[k] as? Double { return safeInt(d) }
+        if let n = v[k] as? NSNumber { return safeInt(n.doubleValue) }
         return nil
+    }
+
+    /// Finite + Int-range checked Double→Int conversion. Returns nil rather than
+    /// trapping on attacker-supplied values (NaN/inf/|x|>Int.max).
+    private static func safeInt(_ d: Double) -> Int? {
+        guard d.isFinite, d >= -9e18, d <= 9e18 else { return nil }
+        return Int(d)
     }
 
     static func doubleVal(_ v: [String: Any], _ k: String) -> Double? {

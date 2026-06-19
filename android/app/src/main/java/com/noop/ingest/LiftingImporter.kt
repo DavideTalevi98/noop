@@ -200,9 +200,15 @@ object LiftingImporter {
             val exercise = row.cell("exercise_title", "exercise_name", "exercise") ?: ""
             val setType = (row.cell("set_type", "type") ?: "").lowercase()
 
-            val weightKg: Double? = row.double("weight_kg", "weight", "weight_kgs")
-                ?: row.double("weight_lb", "weight_lbs", "weight_lbf")?.let { it * LB_TO_KG }
-            val reps = row.double("reps", "rep_count")?.toInt()
+            val weightKg: Double? = (row.double("weight_kg", "weight", "weight_kgs")
+                ?: row.double("weight_lb", "weight_lbs", "weight_lbf")?.let { it * LB_TO_KG })
+                ?.takeIf { it.isFinite() }
+            // Crafted-import guard (parity with Swift): Kotlin's Double.toInt() SATURATES a
+            // non-finite/out-of-range value (NaN→0, +inf→MAX) and would store garbage rather than
+            // crash; bound reps to a sane finite range and drop-and-skip otherwise so both platforms
+            // reject the same hostile CSV (e.g. reps "1e9999" → +inf).
+            val reps = row.double("reps", "rep_count")
+                ?.takeIf { it.isFinite() && it >= 0 && it < 1e6 }?.toInt()
 
             val key = "${title ?: ""}|$startRaw"
             val acc = byKey.getOrPut(key) { order.add(key); HevyAcc(start, title) }
@@ -346,13 +352,22 @@ object LiftingImporter {
         is Number -> any.toDouble()
         is String -> any.toDoubleOrNull()
         else -> null
-    }
+    }?.takeIf { it.isFinite() }   // reject NaN/inf (e.g. "1e9999") rather than carry garbage downstream
 
     private fun liftosaurInt(any: Any?): Int? = when (any) {
-        is Number -> any.toInt()
-        is String -> any.toIntOrNull() ?: any.toDoubleOrNull()?.toInt()
+        is Number -> safeInt(any.toDouble())
+        is String -> any.toIntOrNull() ?: any.toDoubleOrNull()?.let { safeInt(it) }
         else -> null
     }
+
+    /**
+     * Finite + Int-range checked Double→Int conversion (parity with Swift's `safeInt`). Kotlin's
+     * `Double.toInt()` SATURATES non-finite/out-of-range values (NaN→0, +inf→Int.MAX_VALUE) and so
+     * would silently store garbage from a crafted import; return null instead so the set is dropped
+     * and skipped, agreeing with the Swift importer's drop-and-skip.
+     */
+    private fun safeInt(d: Double): Int? =
+        if (d.isFinite() && d >= -9e18 && d <= 9e18) d.toInt() else null
 
     /**
      * Liftosaur timestamps are epoch milliseconds (number or numeric string); a plain ISO string is

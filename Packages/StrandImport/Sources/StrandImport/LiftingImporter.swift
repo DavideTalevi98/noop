@@ -154,7 +154,9 @@ public enum LiftingImporter {
             // Weight: prefer kg; fall back to a lb column (convert). Bodyweight sets have no weight.
             let weightKg: Double? = row.double("weight_kg", "weight", "weight_kgs")
                 ?? row.double("weight_lb", "weight_lbs", "weight_lbf").map { $0 * lbToKg }
-            let reps = row.double("reps", "rep_count").map { Int($0) }
+            // Crafted-import-crash guard: Int($0) traps on non-finite/out-of-range
+            // Doubles from a hostile CSV; bound reps to a sane finite range.
+            let reps = row.double("reps", "rep_count").flatMap { $0.isFinite && $0 >= 0 && $0 < 1e6 ? Int($0) : nil }
 
             let key = "\(title ?? "")|\(startRaw)"
             if byKey[key] == nil {
@@ -311,9 +313,18 @@ public enum LiftingImporter {
     private static func liftosaurInt(_ any: Any?) -> Int? {
         if let i = any as? Int { return i }
         if let n = any as? NSNumber { return n.intValue }
-        if let d = any as? Double { return Int(d) }
-        if let s = any as? String { return Int(s) ?? Double(s).map { Int($0) } }
+        // Crafted-import-crash guard: Int(d) traps on non-finite or out-of-range
+        // Doubles (e.g. "1e9999" parses to +inf). Drop-and-skip instead.
+        if let d = any as? Double { return safeInt(d) }
+        if let s = any as? String { return Int(s) ?? Double(s).flatMap(safeInt) }
         return nil
+    }
+
+    /// Finite + Int-range checked Double→Int conversion. Returns nil rather than
+    /// trapping on attacker-supplied values (NaN/inf/|x|>Int.max).
+    private static func safeInt(_ d: Double) -> Int? {
+        guard d.isFinite, d >= -9e18, d <= 9e18 else { return nil }
+        return Int(d)
     }
 
     /// Liftosaur timestamps are epoch milliseconds (number or numeric string). A plain ISO string is
@@ -405,7 +416,9 @@ public extension LiftingSession {
 extension LiftingImporter {
     /// Group an integer-kg figure with thousands separators for the note (e.g. 12400 → "12,400").
     public static func groupedKg(_ kg: Double) -> String {
-        let n = Int(kg.rounded())
+        // Crafted-import-crash guard: accumulated volume can overflow to inf/nan
+        // from a hostile file; Int(inf.rounded()) would trap. Fall back to "0".
+        guard let n = safeInt(kg.rounded()) else { return "0" }
         return groupedFormatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
     private static let groupedFormatter: NumberFormatter = {

@@ -11,11 +11,11 @@ options:
   developmentLanguage: en
 settings:
   base:
-    MARKETING_VERSION: "5.2.1"
+    MARKETING_VERSION: "5.2.2"
     # iOS build number (CFBundleVersion). GLOBAL so the iOS app AND its widget extension inherit the
     # SAME value — they must match or iOS warns "extension version must match parent app" (#416).
     # macOS sets its own CFBundleVersion on the Strand target and is unaffected by this.
-    CURRENT_PROJECT_VERSION: "132"
+    CURRENT_PROJECT_VERSION: "133"
     SWIFT_VERSION: "5.0"
     # Emit localizable strings so Xcode auto-extracts every LocalizedStringKey into the
     # String Catalog on build (the English (US) base entries).
@@ -52,10 +52,13 @@ packages:
     path: Packages/StrandDesign
   # Compresses the full-database `.noopbak` backup (single-entry deflate ZIP) in DataBackup.swift.
   # Already resolved transitively via StrandImport; linked directly so the app target can
-  # `import ZIPFoundation`. Same version constraint as StrandImport's, so SPM resolves one copy.
+  # `import ZIPFoundation`. Same exact version as StrandImport's, so SPM resolves one copy.
+  # Supply-chain: pinned EXACT (not `from:`) so a clean resolve can't auto-pull a newer —
+  # potentially compromised — upstream release. Bump deliberately, in lockstep with the
+  # Packages/*/Package.swift exact constraints and the committed Package.resolved.
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
-    from: "0.9.0"
+    exactVersion: 0.9.20
 targets:
   Strand:
     type: application
@@ -72,7 +75,7 @@ targets:
         CFBundleName: NOOP
         CFBundleDisplayName: NOOP
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
-        CFBundleVersion: "163"
+        CFBundleVersion: "164"
         LSMinimumSystemVersion: "13.0"
         LSApplicationCategoryType: public.app-category.healthcare-fitness
         NSBluetoothAlwaysUsageDescription: "NOOP connects directly to your WHOOP strap over Bluetooth to read heart rate, R-R intervals, battery, and sensor data locally on your Mac. Nothing leaves your device."

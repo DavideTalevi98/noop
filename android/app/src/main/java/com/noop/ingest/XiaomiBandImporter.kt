@@ -345,9 +345,20 @@ object XiaomiBandImporter {
         if (s.isNullOrEmpty()) null else try { JSONObject(s) } catch (e: Exception) { null }
 
     // Mi Fitness stores numbers as Int or Double; read tolerantly and treat 0 as "not measured".
-    private fun JSONObject.intOpt(k: String): Int? = if (has(k) && !isNull(k)) optInt(k) else null
-    private fun JSONObject.dblOpt(k: String): Double? = if (has(k) && !isNull(k)) optDouble(k) else null
-    private fun JSONObject.longOpt(k: String): Long? = if (has(k) && !isNull(k)) optLong(k) else null
+    //
+    // Crafted-import guard (parity with Swift's `safeInt`): a hostile `value` JSON can carry a
+    // non-finite or out-of-range number (e.g. 1e9999 → +inf, or 1e308). `org.json`'s optInt/optLong
+    // SATURATE/truncate such a value instead of crashing — so without this guard Android would
+    // silently store garbage (steps/hr/sleep_score/…) where Swift drops-and-skips. We read the field
+    // as a Double first, reject non-finite / out-of-Long-range, then narrow; null = not measured.
+    private fun JSONObject.finiteDouble(k: String): Double? =
+        if (has(k) && !isNull(k)) optDouble(k).takeIf { it.isFinite() } else null
+
+    private fun JSONObject.intOpt(k: String): Int? =
+        finiteDouble(k)?.takeIf { it >= -9e18 && it <= 9e18 }?.toLong()?.toInt()
+    private fun JSONObject.dblOpt(k: String): Double? = finiteDouble(k)
+    private fun JSONObject.longOpt(k: String): Long? =
+        finiteDouble(k)?.takeIf { it >= -9e18 && it <= 9e18 }?.toLong()
     private fun JSONObject.intPos(k: String): Int? = intOpt(k)?.takeIf { it > 0 }
     private fun JSONObject.dblPos(k: String): Double? = dblOpt(k)?.takeIf { it > 0 }
 }

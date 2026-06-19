@@ -430,12 +430,27 @@ class AiCoach(private val repo: WhoopRepository) {
      * emulator host alias 10.0.2.2, and any *.local mDNS name. Anything else is treated as public.
      */
     private fun isPrivateLanOrLoopback(host: String): Boolean {
-        val h = host.trim().trim('[', ']').lowercase()  // strip IPv6 brackets if present
+        val raw = host.trim()
+        val h = raw.trim('[', ']').lowercase()  // strip IPv6 brackets if present
         if (h.isEmpty()) return false
+
+        // Is this an IPv6 LITERAL, not a DNS hostname? A URI gives a bracketed host for an IPv6
+        // literal ("[::1]"), and an IPv6 literal always contains a colon while a DNS host (the host
+        // component excludes the :port) never does. We must only apply the fc/fd/fe80 ULA/link-local
+        // classification to a real literal — otherwise a PUBLIC name like "fclient.evil.com" or
+        // "fdn.example.com" starts with "fc"/"fd" and would be wrongly allowed plain-HTTP cleartext.
+        val isIpv6Literal = raw.startsWith("[") || h.contains(':')
+        if (isIpv6Literal) {
+            if (h == "::1") return true                                   // loopback
+            // fc00::/7 unique-local, fe80::/10 link-local — literal-only.
+            if (h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80:")) return true
+            return false                                                  // any other IPv6 literal = public
+        }
+
         if (h == "localhost" || h.endsWith(".localhost")) return true
-        if (h == "::1") return true
-        if (h.endsWith(".local")) return true            // mDNS / Bonjour LAN names
-        if (h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) return true  // IPv6 link-local / ULA
+        // mDNS / Bonjour LAN names: require a real label before ".local" (so the bare ".local" /
+        // "local" can't slip through), and only for an actual hostname (handled above for literals).
+        if (h.endsWith(".local") && h.length > ".local".length) return true
 
         // IPv4 dotted-quad: validate and classify by RFC1918 / loopback / link-local.
         val parts = h.split(".")

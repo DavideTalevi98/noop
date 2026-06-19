@@ -8,8 +8,11 @@ let package = Package(
     dependencies: [
         .package(path: "../WhoopProtocol"),
         .package(path: "../WhoopStore"),
-        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.0"),
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
+        // Supply-chain: pinned EXACT (not `from:`) so a clean resolve can't auto-pull a newer —
+        // potentially compromised — upstream release. The exact versions MUST match the other
+        // Packages/*/Package.swift and project.yml or SPM resolution fails. Bump deliberately.
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", exact: "6.29.3"),
     ],
     targets: [
         .target(name: "StrandImport", dependencies: [

@@ -17,6 +17,14 @@ approximate; downloads are on the [Releases](https://noop.fans/NoopApp/noop/rele
 
 ---
 
+## 5.2.2 — security & reliability hardening (all platforms)
+
+A security-focused patch. No behaviour changes for normal use; these harden the import path and the build supply chain.
+
+- **Hardened third-party import parsing.** A corrupted or malformed export (Liftosaur, Hevy, Mi Fitness/Zepp) can no longer crash the app on import — out-of-range or non-finite values are rejected and skipped cleanly instead of aborting. Cross-platform (iPhone, Mac & Android), so both clients agree on dropping bad rows.
+- **Supply-chain hardening.** Pinned our build dependencies to exact, verified versions (with the app lockfile now tracked) so builds are reproducible and can't silently pull in an unexpected upstream change.
+- **Tightened local-network handling for the optional custom AI Coach endpoint** (Android) — only genuine private/loopback addresses are treated as local, so a public host can't be mistaken for one. The coach remains bring-your-own-key and off by default.
+
 ## 5.2.1 — delete a sleep, swipe to mark read (all platforms)
 
 - **iPhone:** delete a recorded sleep or nap from **Edit sleep times → Delete this sleep** — the day's Rest/recovery recompute without it and it's suppressed from re-detection (parity with Android). (#68)

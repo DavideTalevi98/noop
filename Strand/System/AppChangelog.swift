@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "5.2.1"
+    static let currentVersion = "5.2.2"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,14 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "5.2.2",
+            title: "Security & reliability hardening",
+            date: "June 2026",
+            items: [
+                "**Hardened third-party imports.** A corrupted or malformed export (Liftosaur, Hevy, Mi Fitness/Zepp) can no longer crash the app on import — bad or out-of-range values are skipped cleanly instead. (iPhone, Mac & Android.)",
+                "**Under-the-hood security hardening.** We pinned our build dependencies to exact, verified versions for reproducible, tamper-evident builds, and tightened how the optional bring-your-own-key AI Coach decides what counts as a private/local address. Everything still stays on your device.",
+            ]),
         Release(
             version: "5.2.1",
             title: "Delete a sleep, swipe to mark read",
