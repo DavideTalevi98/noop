@@ -17,6 +17,15 @@ approximate; downloads are on the [Releases](https://noop.fans/NoopApp/noop/rele
 
 ---
 
+## 5.0.1 — stability & polish for v5 (all platforms)
+
+A refinement release that hardens the big v5 update — no behaviour changes, just making sure everything renders and reaches you cleanly.
+
+- **Fixed: overlapping text in several macOS panels.** A few of the new v5 sheets — Lab Book "Add a reading", Breathe, a workout's detail, the Trends report, and the "Your Data, Fused" compare — could open with their title, fields and lists stacked on top of one another (a macOS sheet hosting a scroll view needs a definite height). They now lay out as clean, scrollable forms. The same class of issue is fixed across every affected screen.
+- **Fixed: the Lab Book marker picker only showed the first handful of markers** with no way to scroll to the rest — all ~30 are reachable now.
+- **Polish:** Breathe's pace buttons no longer truncate on a narrow phone (they scroll); the Insights "What Moves You" toggles no longer crowd their headers; the Rhythm "extra / skipped" figure is shown in a calm tone instead of the alarm colour (it's a picture, never a verdict).
+- **Android parity:** the Breathe screen now offers your locked Resonance pace and uses the calm Rest colour world; the Health screen gained quick links to Lab Book and Your Data, Fused; and several values now ellipsize instead of clipping mid-character.
+
 ## 5.0.0 — v5: the raw-signal release (all platforms)
 
 **The biggest release in NOOP's history.** Everyone else shows you a score their cloud computed, behind a

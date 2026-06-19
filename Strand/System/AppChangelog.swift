@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "5.0.0"
+    static let currentVersion = "5.0.1"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,16 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "5.0.1",
+            title: "Stability & polish for v5",
+            date: "June 2026",
+            items: [
+                "**Fixed: some panels rendered with overlapping text on Mac.** A few of the new v5 screens — the Lab Book \"Add a reading\" sheet, Breathe, a workout's detail, the Trends report and the \"Your Data, Fused\" compare — could open with their title, fields and lists stacked on top of each other. They now lay out as clean, scrollable forms.",
+                "**Fixed: the Lab Book marker picker now scrolls to every marker.** It was only showing the first handful and hiding the rest — all of them are reachable now.",
+                "**Polish:** Breathe's pace buttons no longer get cut off on a narrow phone, the Insights toggles stop crowding their headers, and the Rhythm \"extra/skipped\" figure is shown in a calm tone (it's a picture, never an alarm).",
+                "**Android parity:** the Breathe screen now offers your locked Resonance pace and uses the calm Rest colours, and the Health screen gained quick links to Lab Book and Your Data, Fused.",
+            ]),
         Release(
             version: "5.0.0",
             title: "v5 — the raw-signal release: NOOP reads the signal, on your device, free",
