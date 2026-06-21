@@ -538,8 +538,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     flagSet = { NoopPrefs.setEffortRescoreDone(appContext) },
                 )
             }.onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
+            // Skip the full recompute when no new strap data has landed since the last SUCCESSFUL pass.
+            // This loop exists only to pick up newly-SYNCED data — edits/deletes/naps run their own
+            // immediate rescoreAfterSleepEdit, and analyzeRecent's output is data-driven (nowSeconds only
+            // sets the read window) — so an idle interval (no sync; common when the phone just sits there)
+            // would otherwise reload ~10 streams × 21 days + re-run staging for byte-identical output,
+            // ~96×/day. `syncedRowCount()` is a handful of cheap COUNT(*)s; MIN_VALUE forces the first pass.
+            var lastAnalyzedRowCount = Long.MIN_VALUE
             while (isActive) {
-                runCatching {
+                val rowCount = repository.syncedRowCount()
+                if (rowCount != lastAnalyzedRowCount) {
+                    val analyzed = runCatching {
                     IntelligenceEngine.analyzeRecent(
                         repo = repository,
                         profile = currentProfile(),
@@ -576,11 +585,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     // analyzeRecent now hops to Dispatchers.Default; a scope cancellation surfaces as a
                     // CancellationException that runCatching would otherwise swallow, breaking the loop's
                     // own cancellation — rethrow it so onCleared() actually stops the loop. (#125)
-                }.onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
-                // Opt-in writeback: push the freshly computed nights into Health Connect so other
-                // apps see them. Idempotent (clientRecordId per metric+day), so re-running every
-                // cycle just upserts. Never let an HC hiccup (perm revoked mid-flight, provider
-                // update) break the analysis loop.
+                    }.onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
+                        .isSuccess
+                    // Advance the marker only on a successful pass so a failure retries next interval.
+                    if (analyzed) lastAnalyzedRowCount = rowCount
+                }
+                // Opt-in writeback stays per-tick, OUTSIDE the change-gate: HealthConnectWriter.write is
+                // already incremental (frontier-based) so it's cheap on idle ticks, and it must still
+                // backfill existing nights the moment the user enables writeback even if no new sensor
+                // data has landed. Idempotent (clientRecordId per metric+day). Never let an HC hiccup
+                // (perm revoked mid-flight, provider update) break the analysis loop.
                 if (_hcWriteback.value) {
                     runCatching { HealthConnectWriter.write(appContext, repository) }
                 }

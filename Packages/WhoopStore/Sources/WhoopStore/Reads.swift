@@ -189,6 +189,29 @@ extension WhoopStore {
         }
     }
 
+    /// Cheap change-fingerprint for the analyze loop: total synced sensor-row count across ALL sources.
+    /// Advances on any sync/import insert (and changes on an edit's delete), so the periodic loop can skip
+    /// a full recompute when it's unchanged since the last pass — an idle interval otherwise re-scores 21
+    /// days for byte-identical output. Each `COUNT(*)` is trivial next to that; gravity advances on any
+    /// worn night (incl. a v26-only night where HR doesn't grow), so the set covers both layouts.
+    /// INVARIANT: count ONLY sensor-INPUT tables — never an `analyzeRecent` OUTPUT (dailyMetric /
+    /// sleepSession / workout / metricSeries), or the gate self-retriggers forever. Mirrors the Android
+    /// `WhoopRepository.syncedRowCount`.
+    public func syncedRowCount() async throws -> Int {
+        try syncRead { db in
+            let hr   = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM hrSample") ?? 0
+            let rr   = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM rrInterval") ?? 0
+            let ev   = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM event") ?? 0
+            let bat  = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM battery") ?? 0
+            let spo2 = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM spo2Sample") ?? 0
+            let skin = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM skinTempSample") ?? 0
+            let resp = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM respSample") ?? 0
+            let grav = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM gravitySample") ?? 0
+            let step = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM stepSample") ?? 0
+            return hr + rr + ev + bat + spo2 + skin + resp + grav + step
+        }
+    }
+
     /// Aggregate storage footprint: total decoded rows, raw batch count, total raw byteSize.
     public func storageStats() async throws -> (decodedRows: Int, rawBatches: Int, rawBytes: Int) {
         try syncRead { db in

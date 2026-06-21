@@ -289,11 +289,26 @@ final class AppModel: ObservableObject {
             // history once, so any deep-history rows an older build left on the 0–21 axis regenerate on
             // the 0–100 axis. Guarded by a persisted flag, so this is a no-op on every subsequent launch.
             await self.intelligence.runEffortRescoreIfNeeded()
+            // Skip the recompute when no new strap data has landed since the last pass. This loop only
+            // reacts to newly-SYNCED data (edits run their own immediate rescore, and analyzeRecent's
+            // output is data-driven — `now` only sets the read window), so an idle interval would
+            // otherwise re-score 21 days + refresh the v5 suite for byte-identical output. `syncedRowCount`
+            // is a handful of cheap COUNT(*)s. nil (store not open yet) → run, never skip on uncertainty.
+            var lastAnalyzedRowCount = Int.min
             while !Task.isCancelled {
+                var rowCount: Int? = nil
+                if let store = await self.repo.storeHandle() {
+                    rowCount = try? await store.syncedRowCount()
+                }
+                if let rc = rowCount, rc == lastAnalyzedRowCount {
+                    try? await Task.sleep(nanoseconds: 900_000_000_000)
+                    continue
+                }
                 await self.intelligence.analyzeRecent()
                 // v5: recompute the skin-temp suite snapshots (cycle phase + body clock) from the
                 // freshly-scored history so the Health hub cards read a ready result.
                 await self.refreshV5Signals()
+                if let rc = rowCount { lastAnalyzedRowCount = rc }
                 try? await Task.sleep(nanoseconds: 900_000_000_000)  // 15 min, matches the offload cadence
             }
         }

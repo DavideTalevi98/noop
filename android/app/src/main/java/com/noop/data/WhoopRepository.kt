@@ -788,6 +788,18 @@ class WhoopRepository(private val dao: WhoopDao) {
     suspend fun latestHr(deviceId: String): HrSample? = dao.latestHr(deviceId)
     suspend fun latestBattery(deviceId: String): BatterySample? = dao.latestBattery(deviceId)
 
+    /** Cheap change-fingerprint for the 15-min analyze loop: total synced sensor-row count across ALL
+     *  sources. Advances on any sync/import insert (and changes on an edit's delete), so the loop can skip
+     *  a full recompute when it's unchanged since the last successful pass — an idle interval otherwise
+     *  reloads ~10 streams × 21 days + re-runs staging for byte-identical output, ~96×/day. Each COUNT(*)
+     *  is trivial next to that. Gravity advances on any worn night (incl. v26-only, where HR doesn't grow),
+     *  so the set covers both layouts. **INVARIANT: sum ONLY sensor-INPUT tables — never an analyzeRecent
+     *  OUTPUT (dailyMetric / sleepSession / workout / metricSeries), or the gate self-retriggers forever.**
+     *  Mirrors the Swift `WhoopStore.syncedRowCount`. */
+    suspend fun syncedRowCount(): Long =
+        (dao.countHr() + dao.countRr() + dao.countEvents() + dao.countBattery() + dao.countSpo2() +
+            dao.countSkinTemp() + dao.countResp() + dao.countGravity() + dao.countSteps()).toLong()
+
     companion object {
         /** Default row cap on range reads. Matches the Swift call sites' bounded scans. */
         const val DEFAULT_LIMIT = 100_000
