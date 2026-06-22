@@ -284,11 +284,10 @@ public struct InsightCard: View {
         // insight card reads a touch stronger than a tile: an explicit hue wash
         // (.14 → .04) + a matching .22 hue border on top of the frosted surface.
         let hue = tint ?? statusColor
-        let shape = RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+        // Apple-flat: a plain flat card. Identity comes from the COLOURED status headline alone — no extra
+        // hue-gradient wash, no border (so it reads identical to every other card on the page).
         return NoopCard(padding: 18, tint: hue) {
             VStack(alignment: .leading, spacing: 8) {
-                // The overline + large status share a row with any top-trailing overlay, so they
-                // carry the trailing inset; the detail paragraph runs full width below the pill.
                 Text(category).strandOverline()
                     .padding(.trailing, titleTrailingInset)
                 Text(status).font(StrandFont.rounded(28, weight: .bold)).foregroundStyle(statusColor)
@@ -298,15 +297,6 @@ public struct InsightCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .background(
-            shape.fill(
-                LinearGradient(
-                    colors: [hue.opacity(0.14), hue.opacity(0.04)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-            )
-        )
-        .overlay(shape.strokeBorder(hue.opacity(0.22), lineWidth: 1))
     }
 }
 

@@ -660,7 +660,7 @@ struct TodayView: View {
                 #if os(iOS)
                 // Pull the rings up under the compact top bar — the full section gap left too much air
                 // above them now the big "Today's Synthesis" header is gone.
-                heroSection.padding(.top, -16)
+                heroSection.padding(.top, 8)
                 #else
                 heroSection
                 #endif
@@ -1154,7 +1154,7 @@ struct TodayView: View {
             }
             .padding(.horizontal, 13).padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(FrostedCardSurface(cornerRadius: 14))
+            .background(FrostedCardSurface(cornerRadius: NoopMetrics.cardRadius))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1512,7 +1512,7 @@ struct TodayView: View {
     private func chargeRing(score: Double?, d: DailyMetric?, diameter: CGFloat) -> some View {
         if let s = score {
             GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.085)
+                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.10)
         } else {
             emptyHeroRing(diameter: diameter) { ringEmptyOverlay(d: d) }
         }
@@ -1525,7 +1525,7 @@ struct TodayView: View {
         if effortStrain(d) != nil, let gv = effortGaugeValue(d) {
             GlowRing(fraction: gv / effortGaugeMax, value: gv,
                      format: { effortScale == .whoop ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" },
-                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: diameter * 0.085)
+                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: diameter * 0.10)
         } else {
             emptyHeroRing(diameter: diameter) { ringNoData() }
         }
@@ -1536,7 +1536,7 @@ struct TodayView: View {
     private func restRing(diameter: CGFloat) -> some View {
         if let s = restScore {
             GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.restColor, diameter: diameter, lineWidth: diameter * 0.085)
+                     color: StrandPalette.restColor, diameter: diameter, lineWidth: diameter * 0.10)
         } else {
             emptyHeroRing(diameter: diameter) { ringNoData() }
         }
@@ -1547,7 +1547,7 @@ struct TodayView: View {
     private func emptyHeroRing<Overlay: View>(diameter: CGFloat, @ViewBuilder overlay: () -> Overlay) -> some View {
         ZStack {
             Circle().stroke(StrandPalette.textPrimary.opacity(0.10),
-                            style: StrokeStyle(lineWidth: diameter * 0.085, lineCap: .round))
+                            style: StrokeStyle(lineWidth: diameter * 0.10, lineCap: .round))
             overlay()
         }
         .frame(width: diameter, height: diameter)
