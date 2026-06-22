@@ -271,8 +271,10 @@ final class AppModel: ObservableObject {
         // minutes, so recovery / strain / sleep populate from the strap itself with no import.
         // IntelligenceEngine computes, persists under "my-whoop-noop", and refreshes the dashboard.
         // One-shot reclaim of any stale Documents/Inbox picker drops a previous build left behind
-        // before cleanup() reclaimed the original (#590). Off the main actor; no-op on macOS.
-        Task.detached { AppModel.purgeImportInbox() }
+        // before cleanup() reclaimed the original, PLUS any stranded `noop-*` temp scratch (e.g. the
+        // multi-GB `noop-health-*` export.xml an interrupted import leaves behind — #590). Off the main
+        // actor; no-op on macOS for the Inbox part.
+        Task.detached { AppModel.purgeImportInbox(); AppModel.purgeImportTemp() }
 
         Task { [weak self] in
             guard let self else { return }
@@ -1363,14 +1365,26 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Total bytes of NOOP's own `noop-import-*` temp copies (a crash mid-import can strand one).
+    /// True for any scratch file/dir NOOP itself writes into the temp directory — import copies, the
+    /// decompressed export.xml, exports, backups, raw captures: every one is prefixed `noop-`. #590: the
+    /// import decompresses `export.xml` to a `noop-health-*` temp file (up to 8 GB), but a previous build
+    /// only matched `noop-import-*`, so an interrupted import stranded multi-GB extractions the Storage
+    /// screen never saw OR reclaimed. Matching the shared `noop-` prefix counts + sweeps them all and is
+    /// future-proof. Safe: the temp dir is NOOP's private sandbox and the 60 s in-flight guard in
+    /// `purgeImportTemp` protects a live import.
+    nonisolated static func isNoopTempScratch(_ name: String) -> Bool { name.hasPrefix("noop-") }
+
+    /// Total bytes of NOOP's own `noop-*` temp scratch (a crash mid-import can strand a multi-GB one).
+    /// Recurses into directories (the Xiaomi importer stages a `noop-xiaomi-*` folder).
     nonisolated static func importTempSizeBytes() -> Int64 {
         let tmp = FileManager.default.temporaryDirectory
         guard let items = try? FileManager.default.contentsOfDirectory(
-            at: tmp, includingPropertiesForKeys: [.fileSizeKey], options: []) else { return 0 }
+            at: tmp, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: []) else { return 0 }
         var total: Int64 = 0
-        for item in items where item.lastPathComponent.hasPrefix("noop-import-") {
-            total += Int64((try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        for item in items where isNoopTempScratch(item.lastPathComponent) {
+            let vals = try? item.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+            if vals?.isDirectory == true { total += directorySizeBytes(item) }
+            else { total += Int64(vals?.fileSize ?? 0) }
         }
         return total
     }
@@ -1399,15 +1413,16 @@ final class AppModel: ObservableObject {
         return await storageReport()
     }
 
-    /// Remove NOOP's stranded `noop-import-*` temp copies. Mirrors `purgeImportInbox`'s 60 s in-flight
-    /// guard so a concurrent import isn't disturbed.
+    /// Remove NOOP's stranded `noop-*` temp scratch (import copies, the multi-GB `noop-health-*`
+    /// export.xml an interrupted import leaves behind — #590, exports, backups, raw captures). Mirrors
+    /// `purgeImportInbox`'s 60 s in-flight guard so a concurrent import/export isn't disturbed.
     nonisolated static func purgeImportTemp() {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
         guard let items = try? fm.contentsOfDirectory(
             at: tmp, includingPropertiesForKeys: [.contentModificationDateKey], options: []) else { return }
         let cutoff = Date().addingTimeInterval(-60)
-        for item in items where item.lastPathComponent.hasPrefix("noop-import-") {
+        for item in items where isNoopTempScratch(item.lastPathComponent) {
             let modified = (try? item.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             if let modified, modified > cutoff { continue }
             try? fm.removeItem(at: item)
