@@ -1281,10 +1281,19 @@ class WhoopBleClient(
         val filters = listOf(
             ScanFilter.Builder().setServiceUuid(ParcelUuid(model.service)).build(),
         )
-        // LOW_LATENCY for a snappy first connect, mirroring the desktop app's eager scan.
-        // We do NOT allow duplicates (CBCentralManagerScanOptionAllowDuplicatesKey: false).
+        // Scan mode scales with reconnect state so a background keep-alive doesn't run the most aggressive
+        // scan all day. A user-initiated / first connect (the VM resets the counter on tap, #48) gets
+        // LOW_LATENCY for a snappy connect; an INVOLUNTARY reconnect uses BALANCED while the backoff is
+        // still climbing (a brief dropout — stay responsive), then drops to LOW_POWER once the backoff has
+        // SATURATED (attempts >= 6 == ReconnectBackoff's 60s cap → the strap's likely gone a while, so
+        // favour battery over reconnect latency). We do NOT allow duplicates.
+        val scanMode = when {
+            failedReconnectAttempts <= 0 -> ScanSettings.SCAN_MODE_LOW_LATENCY
+            failedReconnectAttempts < 6 -> ScanSettings.SCAN_MODE_BALANCED
+            else -> ScanSettings.SCAN_MODE_LOW_POWER
+        }
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setScanMode(scanMode)
             .build()
         log("Scanning for ${model.displayName}…")
         scanning = true
