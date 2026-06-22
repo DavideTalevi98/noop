@@ -515,7 +515,7 @@ struct TodayView: View {
                                     .foregroundStyle(StrandPalette.goldDeepText)
                                     .padding(.horizontal, 3.5).padding(.vertical, 1)
                                     .frame(minWidth: 14)
-                                    .background(Capsule().fill(StrandPalette.gold))
+                                    .background(Capsule().fill(StrandPalette.statusCritical))
                                     .offset(x: 2, y: -1)
                             }
                         }
@@ -603,7 +603,7 @@ struct TodayView: View {
                             .foregroundStyle(StrandPalette.goldDeepText)
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .frame(minWidth: 15)
-                            .background(Capsule().fill(StrandPalette.gold))
+                            .background(Capsule().fill(StrandPalette.statusCritical))
                             .offset(x: 6, y: -4)
                             .accessibilityHidden(true)
                     }
@@ -652,11 +652,8 @@ struct TodayView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.97)))
                     }
                 }
-                // One-time pointer to the scoring guide, shown once scores exist.
-                if selectedDayOffset == 0 && repo.today?.recovery != nil && !scoringGuideCardSeen && !newHereDismissed {
-                    scoringGuideFirstRunCard
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                }
+                // Design Reset: the "New here?" first-run card is off the dashboard for the clean WHOOP
+                // look. The scoring guide stays reachable from the i on each score and in Settings.
                 #if os(iOS)
                 // Pull the rings up under the compact top bar — the full section gap left too much air
                 // above them now the big "Today's Synthesis" header is gone.
@@ -1078,7 +1075,7 @@ struct TodayView: View {
                 category: "Synthesis",
                 status: calibrationStatus ?? "\(synthesisCardStatus(d, score: score))",
                 detail: calibrationDetail ?? "\(synthesisCardDetail(d, score: score))",
-                statusColor: synthesisCardColor(score: score),
+                statusColor: StrandPalette.textPrimary,
                 tint: StrandPalette.chargeColor
             )
 
@@ -1352,12 +1349,14 @@ struct TodayView: View {
                 .frame(width: 22)
                 .accessibilityHidden(true)
             Text(label)
-                .font(StrandFont.subhead)
+                .font(StrandFont.footnote.weight(.semibold))
+                .textCase(.uppercase)
+                .tracking(0.6)
                 .foregroundStyle(StrandPalette.textSecondary)
             Spacer(minLength: 8)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
-                    .font(StrandFont.number(20))
+                    .font(StrandFont.number(24))
                     .foregroundStyle(StrandPalette.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 Text(unit)
@@ -1365,7 +1364,7 @@ struct TodayView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
             }
         }
-        .padding(.vertical, 11)
+        .padding(.vertical, 13)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value) \(unit)")
     }

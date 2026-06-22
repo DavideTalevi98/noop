@@ -498,7 +498,8 @@ public enum ScoreState: Sendable {
     /// The chip's hue, drawn from the re-pointed palette (gold / blue / slate).
     public var color: Color {
         switch self {
-        case .solid, .live: return StrandPalette.gold
+        case .solid:        return StrandPalette.statusPositive // settled / trustworthy — WHOOP green
+        case .live:         return StrandPalette.accent          // streaming now — WHOOP blue
         case .building:     return StrandPalette.sleepLight   // #4A90E2 blue
         case .calibrating:  return StrandPalette.textTertiary // #8A94A4 slate
         }
