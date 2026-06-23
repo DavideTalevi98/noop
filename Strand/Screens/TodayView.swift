@@ -640,6 +640,11 @@ struct TodayView: View {
 
     var body: some View {
         ScreenScaffold(title: scaffoldTitle, onRefresh: { await repo.refresh() },
+                       // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
+                       // Today supplies its own inner eager VStack (below), so the staggered section reveal is
+                       // unchanged — this only defers building the single inner stack until it scrolls in.
+                       // Byte-identical layout (LazyVStack == eager VStack alignment/spacing/header).
+                       lazy: true,
                        // PERF (scroll stutter): flatten the day-cycle scene (a gradient-masked image with a
                        // gradient overlay + opacity) into ONE cached GPU layer via `.drawingGroup()`, so it
                        // composites once rather than re-rasterizing its mask/overlay on each body pass / scroll

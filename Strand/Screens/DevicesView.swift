@@ -11,7 +11,11 @@ import WhoopStore
 // active-device change — so this view never touches BLEManager or the WHOOP path directly.
 struct DevicesView: View {
     @EnvironmentObject var model: AppModel
-    @EnvironmentObject var live: LiveState
+    // PERF: this OUTER view does NOT observe `LiveState`. It only branches on `model.deviceRegistry`
+    // becoming non-nil and hands off to `DevicesContent`, which owns its own `@EnvironmentObject live`
+    // (the live battery / "Active · Live" badge live there). Observing `live` here would re-render the
+    // whole screen on every ~1 Hz strap tick for no visible change — `live` is still in the environment
+    // for `DevicesContent` and the Add-device wizard, so nothing downstream loses its live readout.
 
     var body: some View {
         ScreenScaffold(title: "Devices",

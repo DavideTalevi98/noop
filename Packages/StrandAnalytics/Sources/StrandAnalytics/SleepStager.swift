@@ -679,6 +679,49 @@ public enum SleepStager {
                                    wristOff: [(start: Int, end: Int)] = [],
                                    bandSleepState: [(ts: Int, state: Int)] = [],
                                    useSleepStagerV2: Bool = false) -> [SleepSession] {
+        // v7.0.2 perf (#707): the single heaviest analytics call — it sorts the dense full-day gravity
+        // stream (~tens of thousands of samples for a worn day), builds the gravity-delta/still spine, and
+        // stages every accepted run. The post-sync scoring loop calls it once PER DAY across the window, and
+        // a re-run with the SAME raw (an idempotent re-pass, or a later sync that didn't touch this day's
+        // streams) re-does all of it for an identical `[SleepSession]`. Memoize on a FULL key: every input
+        // that steers detection or staging — the four streams, the tz offset (daytime-guard + onset band),
+        // the off-wrist intervals (#500 backstop), the persisted band state (#531 H8), and the V2 toggle (an
+        // edit to any re-keys to a fresh compute). Result-only + bounded; the raw arrays are never retained.
+        let key = DetectKey(
+            grav: StreamFingerprint.of(gravity, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
+            hr: StreamFingerprint.of(hr, ts: { $0.ts }, quant: { Int($0.bpm) }),
+            rr: StreamFingerprint.of(rr, ts: { $0.ts }, quant: { Int($0.rrMs) }),
+            resp: StreamFingerprint.of(resp, ts: { $0.ts }, quant: { $0.raw }),
+            tz: tzOffsetSeconds,
+            wristOff: StreamFingerprint.of(wristOff, ts: { $0.start }, quant: { $0.end }),
+            band: StreamFingerprint.of(bandSleepState, ts: { $0.ts }, quant: { $0.state }),
+            v2: useSleepStagerV2)
+        return detectSleepCache.value(key) {
+            detectSleepUncached(hr: hr, rr: rr, resp: resp, gravity: gravity,
+                                tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
+                                bandSleepState: bandSleepState, useSleepStagerV2: useSleepStagerV2)
+        }
+    }
+
+    private struct DetectKey: Hashable {
+        let grav: StreamFingerprint; let hr: StreamFingerprint
+        let rr: StreamFingerprint; let resp: StreamFingerprint
+        let tz: Int
+        let wristOff: StreamFingerprint; let band: StreamFingerprint
+        let v2: Bool
+    }
+    /// ≈ the number of distinct days in a scoring window; FIFO-evicted, holds only small session arrays.
+    private static let detectSleepCache = AnalyticsMemoCache<DetectKey, [SleepSession]>(capacity: 40)
+
+    /// The unchanged detection+staging pipeline; split out verbatim so the public entry memoizes in front.
+    private static func detectSleepUncached(hr: [HRSample],
+                                            rr: [RRInterval],
+                                            resp: [RespSample],
+                                            gravity: [GravitySample],
+                                            tzOffsetSeconds: Int,
+                                            wristOff: [(start: Int, end: Int)],
+                                            bandSleepState: [(ts: Int, state: Int)],
+                                            useSleepStagerV2: Bool) -> [SleepSession] {
         let grav = gravity.sorted { $0.ts < $1.ts }
         if grav.count < 2 { return [] }
 
@@ -803,6 +846,33 @@ public enum SleepStager {
     /// stages from the sensor data instead of a fabricated "awake" block. (#318)
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+        // v7.0.2 perf (#707): stage each window AT MOST ONCE per (window, input-fingerprint). Both
+        // `detectSleep` (per accepted run) and the sleep-edit restage call this with byte-identical streams
+        // across post-sync passes / `body` re-evaluations; each call builds a fresh 30 s epoch grid +
+        // per-epoch feature arrays before collapsing to a few `StageSegment`s. The key folds in the window
+        // (an edit re-keys) and a strided fingerprint of every stream the V1 recipe READS (grav/hr/rr/resp —
+        // resp IS consumed here via the epoch grid, unlike V2). Result-only, bounded, no raw arrays retained.
+        let key = V1StageKey(
+            start: start, end: end,
+            grav: StreamFingerprint.of(grav, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
+            hr: StreamFingerprint.of(hr, ts: { $0.ts }, quant: { Int($0.bpm) }),
+            rr: StreamFingerprint.of(rr, ts: { $0.ts }, quant: { Int($0.rrMs) }),
+            resp: StreamFingerprint.of(resp, ts: { $0.ts }, quant: { $0.raw }))
+        return stageSessionCache.value(key) {
+            stageSessionUncached(start: start, end: end, grav: grav, hr: hr, rr: rr, resp: resp)
+        }
+    }
+
+    private struct V1StageKey: Hashable {
+        let start: Int; let end: Int
+        let grav: StreamFingerprint; let hr: StreamFingerprint
+        let rr: StreamFingerprint; let resp: StreamFingerprint
+    }
+    private static let stageSessionCache = AnalyticsMemoCache<V1StageKey, [StageSegment]>(capacity: 32)
+
+    /// Unchanged V1 staging recipe; split verbatim so the public entry memoizes in front of it.
+    private static func stageSessionUncached(start: Int, end: Int, grav: [GravitySample],
+                                             hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
         if gSeg.count < 2 { return [StageSegment(start: start, end: end, stage: "light")] }
 

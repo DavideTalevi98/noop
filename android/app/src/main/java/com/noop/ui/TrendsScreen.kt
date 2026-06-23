@@ -77,145 +77,160 @@ fun TrendsScreen(vm: AppViewModel) {
 
     var range by remember { mutableStateOf(TrendsRange.Quarter) }
 
-    ScreenScaffold(title = "Trends", subtitle = "The thread of you over time.") {
-        if (days.isEmpty()) {
-            EmptyTrends()
-            return@ScreenScaffold
-        }
+    // Resolve each metric's window ONCE per composition and reuse below — mirrors the macOS resolve(_:)
+    // so caption / widened / points aren't recomputed per use. HOISTED above the lazy scaffold: these
+    // are @Composable `remember` hooks, which can't run inside the LazyListScope content lambda. They're
+    // cheap memoized resolves (no-ops over an empty `days`), so the empty branch below simply ignores
+    // them — same as Intelligence's hoisted range/filter. Mirrors the eager body's per-composition resolve.
+    val recovery = remember(days, range) { resolveMetric(days, range) { it.recovery } }
+    val hrv = remember(days, range) { resolveMetric(days, range) { it.avgHrv } }
+    val rhr = remember(days, range) { resolveMetric(days, range) { it.restingHr?.toDouble() } }
+    val strain = remember(days, range) { resolveMetric(days, range) { it.strain } }
+    // Rest = sleep efficiency over the window, on the same 0–100 score scale as Charge, so the trio
+    // reads as one pip language. Efficiency arrives as either a 0–1 fraction (engine) or a 0–100
+    // percentage (import) depending on source — normalise to 0–100 the way Sleep/Compare do.
+    val rest = remember(days, range) {
+        resolveMetric(days, range) { d -> d.efficiency?.let { if (it <= 1.0) it * 100.0 else it } }
+    }
+    val recAvg = recovery.values.averageOrNull()
 
-        // Resolve each metric's window ONCE per composition and reuse below — mirrors
-        // the macOS resolve(_:) so caption / widened / points aren't recomputed per use.
-        val recovery = remember(days, range) { resolveMetric(days, range) { it.recovery } }
-        val hrv = remember(days, range) { resolveMetric(days, range) { it.avgHrv } }
-        val rhr = remember(days, range) { resolveMetric(days, range) { it.restingHr?.toDouble() } }
-        val strain = remember(days, range) { resolveMetric(days, range) { it.strain } }
-        // Rest = sleep efficiency over the window, on the same 0–100 score scale as Charge, so the trio
-        // reads as one pip language. Efficiency arrives as either a 0–1 fraction (engine) or a 0–100
-        // percentage (import) depending on source — normalise to 0–100 the way Sleep/Compare do.
-        val rest = remember(days, range) {
-            resolveMetric(days, range) { d -> d.efficiency?.let { if (it <= 1.0) it * 100.0 else it } }
+    LazyScreenScaffold(title = "Trends", subtitle = "The thread of you over time.") {
+        if (days.isEmpty()) {
+            item { EmptyTrends() }
+            return@LazyScreenScaffold
         }
 
         // The main card list ripples in once on appear (Reduce-Motion safe), mirroring the iOS
         // staggeredAppear sequence — each top-level section is one staggered child.
 
         // --- Week-in-review digest (#208) — self-hides when this week has no data. ---
-        Column(modifier = Modifier.staggeredAppear(index = 0)) { WeeklyDigestCard(vm) }
+        item { Column(modifier = Modifier.staggeredAppear(index = 0)) { WeeklyDigestCard(vm) } }
 
         // --- Week in review — the Charge / Effort / Rest trio in NOOP's pip language (PipBar +
         // CountUpText), mirroring the iOS TrendsView.weekInReview card. White count-up numbers over
         // segmented count-up bars; self-hides when none of the three carry a window mean. ---
-        WeekInReviewCard(
-            charge = recovery,
-            effort = strain,
-            rest = rest,
-            effortScale = effortScale,
-            modifier = Modifier.staggeredAppear(index = 1),
-        )
+        item {
+            WeekInReviewCard(
+                charge = recovery,
+                effort = strain,
+                rest = rest,
+                effortScale = effortScale,
+                modifier = Modifier.staggeredAppear(index = 1),
+            )
+        }
 
         // --- Range control ---
-        Column(
-            modifier = Modifier.staggeredAppear(index = 2),
-            verticalArrangement = Arrangement.spacedBy(Metrics.space8),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+        item {
+            Column(
+                modifier = Modifier.staggeredAppear(index = 2),
+                verticalArrangement = Arrangement.spacedBy(Metrics.space8),
             ) {
-                SegmentedPillControl(
-                    items = TrendsRange.entries.toList(),
-                    selection = range,
-                    label = { it.label },
-                    onSelect = { range = it },
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SegmentedPillControl(
+                        items = TrendsRange.entries.toList(),
+                        selection = range,
+                        label = { it.label },
+                        onSelect = { range = it },
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Overline(range.subtitle, color = Palette.textTertiary)
+                }
+                Text(
+                    recovery.caption,
+                    style = NoopType.footnote,
+                    color = if (recovery.widened) Palette.statusWarning else Palette.textTertiary,
                 )
-                Spacer(Modifier.weight(1f))
-                Overline(range.subtitle, color = Palette.textTertiary)
             }
-            Text(
-                recovery.caption,
-                style = NoopType.footnote,
-                color = if (recovery.widened) Palette.statusWarning else Palette.textTertiary,
-            )
         }
 
         // --- Hero — charge over time. Charge (green) world: domain card wash, a crisp flat line with a
         // bright "now" end-cap, and a TrendChip for the window's move. ---
-        val recAvg = recovery.values.averageOrNull()
-        ChartCard(
-            modifier = Modifier.staggeredAppear(index = 3),
-            title = "Charge",
-            // The range bar above already prints the authoritative reading-count caption;
-            // the hero only names its window so the count isn't doubled in one card height.
-            subtitle = range.subtitle,
-            trailing = recAvg?.let { "${it.roundToInt()}" },
-            color = Palette.chargeColor,
-            tipColor = Palette.chargeBright,
-            tint = Palette.chargeColor,
-            values = recovery.values,
-            dates = recovery.dates,
-            formatY = { "${it.roundToInt()}" },
-            change = periodChange(recovery.values),
-            higherIsBetter = true,
-            changeFmt = { "${it.roundToInt()}" },
-            // Lift the ceiling ~6% so a near-100 peak and the now-cap halo clear the top gridline —
-            // mirrors the iOS hero's `valueRange: 0...106`.
-            chartHeadroom = 0.06f,
-            footer = listOf(
-                "Avg" to (recAvg?.let { "${it.roundToInt()}" } ?: EM_DASH),
-                "Peak" to (recovery.values.maxOrNull()?.let { "${it.roundToInt()}" } ?: EM_DASH),
-                "Low" to (recovery.values.minOrNull()?.let { "${it.roundToInt()}" } ?: EM_DASH),
-                "Days" to "${recovery.values.size}",
-            ),
-        )
+        item {
+            ChartCard(
+                modifier = Modifier.staggeredAppear(index = 3),
+                title = "Charge",
+                // The range bar above already prints the authoritative reading-count caption;
+                // the hero only names its window so the count isn't doubled in one card height.
+                subtitle = range.subtitle,
+                trailing = recAvg?.let { "${it.roundToInt()}" },
+                color = Palette.chargeColor,
+                tipColor = Palette.chargeBright,
+                tint = Palette.chargeColor,
+                values = recovery.values,
+                dates = recovery.dates,
+                formatY = { "${it.roundToInt()}" },
+                change = periodChange(recovery.values),
+                higherIsBetter = true,
+                changeFmt = { "${it.roundToInt()}" },
+                // Lift the ceiling ~6% so a near-100 peak and the now-cap halo clear the top gridline —
+                // mirrors the iOS hero's `valueRange: 0...106`.
+                chartHeadroom = 0.06f,
+                footer = listOf(
+                    "Avg" to (recAvg?.let { "${it.roundToInt()}" } ?: EM_DASH),
+                    "Peak" to (recovery.values.maxOrNull()?.let { "${it.roundToInt()}" } ?: EM_DASH),
+                    "Low" to (recovery.values.minOrNull()?.let { "${it.roundToInt()}" } ?: EM_DASH),
+                    "Days" to "${recovery.values.size}",
+                ),
+            )
+        }
 
         // --- Small multiples — HRV / Resting HR / Effort. HRV/RHR are Charge sub-signals → the green
         // card world (each line keeps its metric hue); Effort is the WHOOP blue strain world. ---
         // No trailing window label — the range bar's overline already states it.
-        Column(
-            modifier = Modifier.staggeredAppear(index = 4),
-            verticalArrangement = Arrangement.spacedBy(Metrics.gap),
-        ) {
-            SectionHeader("Daily signals", overline = "Trends")
-            MetricTrendCard(
-                title = "Heart rate variability", unit = "ms",
-                color = Palette.metricPurple,
-                tint = Palette.chargeColor,
-                higherIsBetter = true,
-                resolved = hrv,
-                fmt = { "${it.roundToInt()}" },
-            )
-            MetricTrendCard(
-                title = "Resting heart rate", unit = "bpm",
-                color = Palette.metricRose,
-                tint = Palette.chargeColor,
-                higherIsBetter = false,
-                resolved = rhr,
-                fmt = { "${it.roundToInt()}" },
-            )
-            MetricTrendCard(
-                // Plotted values stay on the stored 0–100 scale (line shape unchanged); only the displayed
-                // numbers + unit follow the Effort-scale toggle, converted inside `fmt`. (#268)
-                title = "Effort", unit = "/ ${UnitFormatter.effortScaleMax(effortScale)}",
-                // WHOOP: Effort/Strain is always BLUE — a deep→bright blue line, not the amber ramp.
-                color = Palette.effortColor,
-                tint = Palette.effortColor,
-                tipColor = Palette.effortBright,
-                higherIsBetter = null,
-                resolved = strain,
-                fmt = { UnitFormatter.effortDisplay(it, effortScale) },
-            )
+        item {
+            Column(
+                modifier = Modifier.staggeredAppear(index = 4),
+                verticalArrangement = Arrangement.spacedBy(Metrics.gap),
+            ) {
+                SectionHeader("Daily signals", overline = "Trends")
+                MetricTrendCard(
+                    title = "Heart rate variability", unit = "ms",
+                    color = Palette.metricPurple,
+                    tint = Palette.chargeColor,
+                    higherIsBetter = true,
+                    resolved = hrv,
+                    fmt = { "${it.roundToInt()}" },
+                )
+                MetricTrendCard(
+                    title = "Resting heart rate", unit = "bpm",
+                    color = Palette.metricRose,
+                    tint = Palette.chargeColor,
+                    higherIsBetter = false,
+                    resolved = rhr,
+                    fmt = { "${it.roundToInt()}" },
+                )
+                MetricTrendCard(
+                    // Plotted values stay on the stored 0–100 scale (line shape unchanged); only the displayed
+                    // numbers + unit follow the Effort-scale toggle, converted inside `fmt`. (#268)
+                    title = "Effort", unit = "/ ${UnitFormatter.effortScaleMax(effortScale)}",
+                    // WHOOP: Effort/Strain is always BLUE — a deep→bright blue line, not the amber ramp.
+                    color = Palette.effortColor,
+                    tint = Palette.effortColor,
+                    tipColor = Palette.effortBright,
+                    higherIsBetter = null,
+                    resolved = strain,
+                    fmt = { UnitFormatter.effortDisplay(it, effortScale) },
+                )
+            }
         }
 
         // --- Recovery history strip (stands in for the macOS YearHeatStrip) ---
-        Column(modifier = Modifier.staggeredAppear(index = 5)) {
-            RecoveryHistoryCard(days = days, range = range)
+        item {
+            Column(modifier = Modifier.staggeredAppear(index = 5)) {
+                RecoveryHistoryCard(days = days, range = range)
+            }
         }
 
         // --- Export trends report (#436) — the shareable offline PDF exporter. Mirrors the iOS
         // TrendsView.exportReportRow footer; the same composable Settings hosts, so both surfaces
         // offer it. Routed through NoopButton like every other CTA (no gold). ---
-        Column(modifier = Modifier.staggeredAppear(index = 6)) {
-            TrendsReportExportSection(vm)
+        item {
+            Column(modifier = Modifier.staggeredAppear(index = 6)) {
+                TrendsReportExportSection(vm)
+            }
         }
     }
 }
@@ -639,10 +654,17 @@ private fun ChartFooter(items: List<Pair<String, String>>) {
  */
 @Composable
 private fun RecoveryHistoryCard(days: List<DailyMetric>, range: TrendsRange) {
-    // Always show at least a year; expand to all history on ALL.
-    val span = (range.days ?: days.size).coerceAtLeast(365)
-    val window = days.takeLast(span)
-    val recovery = window.mapNotNull { it.recovery }
+    // PERF (#scroll-jank): memoise the window slice + recovery extraction on (days, range) so the
+    // 800+-day takeLast + mapNotNull don't re-run on every recomposition (e.g. the staggered-appear
+    // animation frames that drive this whole strip). Same span rule, same values, same order — purely
+    // skips redundant re-slicing. NOTE: the bars are NOT caller-downsampled — BarChart already mean-
+    // bucket-downsamples internally to ~one bar per horizontal pixel (pixel-identical), so a second,
+    // coarser caller-side bucket (e.g. ≤180) would visibly widen the bars and is deliberately avoided.
+    val recovery = remember(days, range) {
+        // Always show at least a year; expand to all history on ALL.
+        val span = (range.days ?: days.size).coerceAtLeast(365)
+        days.takeLast(span).mapNotNull { it.recovery }
+    }
     val title = if (range == TrendsRange.All && days.size > 365) {
         "Charge — all history"
     } else {

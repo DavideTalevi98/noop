@@ -64,13 +64,17 @@ fun SmartAlarmScreen(vm: AppViewModel) {
     // it in Settings and come back — there's no result callback for this special-access permission.
     var canSchedule by remember { mutableStateOf(vm.canScheduleExactAlarms()) }
 
-    ScreenScaffold(
+    // PERF (#707): lazy scaffold — each of the four cards is one `item { }` (all unconditional). Order +
+    // spacing unchanged (LazyColumn reproduces the eager `spacedBy(20.dp)`); only on-screen cards compose +
+    // are accessibility-walked.
+    LazyScreenScaffold(
         title = "Smart alarm",
         subtitle = "Wake in a lighter sleep phase — with a guaranteed backup at the window's end.",
     ) {
         // The guaranteed-wake card always shows so the safety promise is the first thing read.
-        WindowCard(enabled = enabled, targetMinutes = targetMinutes, windowMinutes = windowMinutes)
+        item { WindowCard(enabled = enabled, targetMinutes = targetMinutes, windowMinutes = windowMinutes) }
 
+        item {
         AlarmSettingsCard {
             ToggleRowLocal(
                 label = "Wake me with a smart alarm",
@@ -151,12 +155,13 @@ fun SmartAlarmScreen(vm: AppViewModel) {
                 onChange = { vm.setBuzzWhoop4Enabled(it) },
             )
         }
+        }
 
         // The honest explanation of how detection works + its limits.
-        ExplanationCard()
+        item { ExplanationCard() }
 
         // The cross-platform wind-down nudge lives here too.
-        WindDownCard(vm)
+        item { WindDownCard(vm) }
     }
 }
 

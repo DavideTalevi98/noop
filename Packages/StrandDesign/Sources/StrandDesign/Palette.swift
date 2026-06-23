@@ -371,8 +371,8 @@ public enum StrandPalette {
 
     /// Linear-interpolate two colors in sRGB space.
     static func interpolate(_ a: Color, _ b: Color, _ t: Double) -> Color {
-        let ca = a.rgbaComponents
-        let cb = b.rgbaComponents
+        let ca = ColorComponentCache.components(of: a)
+        let cb = ColorComponentCache.components(of: b)
         let tt = min(max(t, 0.0), 1.0)
         return Color(
             .sRGB,
@@ -381,6 +381,60 @@ public enum StrandPalette {
             blue:  ca.b + (cb.b - ca.b) * tt,
             opacity: ca.a + (cb.a - ca.a) * tt
         )
+    }
+}
+
+// MARK: - Resolved-component memo cache
+//
+// PERF: `interpolate(_:_:_:)` is the leaf of ALL gradient sampling — every sparkline point, every pip
+// segment, every gauge tip, every heat-strip cell calls `sample(stops:at:)` → `interpolate`, which used
+// to build a fresh UIColor/NSColor and run `getRed()` on BOTH endpoints on every single call. The stop
+// colours are a tiny fixed set of static `let`s, so resolving them over and over dominated the draw.
+//
+// This memoizes the resolved sRGB components per Color. Crucially the cache is keyed on the CURRENT
+// resolved appearance as well as the Color, because the palette tokens are dynamic `Color(light:dark:)`
+// providers that resolve to DIFFERENT components per light/dark — so a bare Color key would return a
+// stale, wrong-scheme value after an appearance flip. Including the appearance token in the key makes
+// the cache miss (and re-resolve) exactly when the scheme changes, so the output stays byte-identical to
+// calling `rgbaComponents` directly. Bounded so a pathological caller can't grow it without limit.
+enum ColorComponentCache {
+    private static var store: [Key: (r: Double, g: Double, b: Double, a: Double)] = [:]
+    private static let lock = NSLock()
+
+    private struct Key: Hashable {
+        let color: Color
+        let appearance: Int
+    }
+
+    /// A small integer identifying the current resolved appearance (light vs dark), matching the trait
+    /// that `UIColor(color)` / `NSColor(color)` resolves against at this call site.
+    private static var appearanceToken: Int {
+        #if canImport(UIKit)
+        return UITraitCollection.current.userInterfaceStyle == .dark ? 1 : 0
+        #elseif canImport(AppKit)
+        let match = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua])
+        return match == .darkAqua ? 1 : 0
+        #else
+        return 0
+        #endif
+    }
+
+    static func components(of color: Color) -> (r: Double, g: Double, b: Double, a: Double) {
+        let key = Key(color: color, appearance: appearanceToken)
+        lock.lock()
+        if let hit = store[key] {
+            lock.unlock()
+            return hit
+        }
+        lock.unlock()
+        let resolved = color.rgbaComponents
+        lock.lock()
+        // Cap the cache so an adversarial stream of unique colours can't grow it unboundedly; the real
+        // working set is the handful of static palette stops, so this ceiling is never hit in practice.
+        if store.count > 512 { store.removeAll(keepingCapacity: true) }
+        store[key] = resolved
+        lock.unlock()
+        return resolved
     }
 }
 

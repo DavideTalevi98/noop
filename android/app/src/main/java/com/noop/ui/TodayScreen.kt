@@ -654,7 +654,7 @@ fun TodayScreen(
         )
     }
 
-    ScreenScaffold(
+    LazyScreenScaffold(
         // title = null suppresses the big scaffold header (the nullable-title path); the compact
         // WHOOP-style top bar below replaces it, mirroring the iOS Today screen (todayTopBar).
         title = null,
@@ -676,6 +676,7 @@ fun TodayScreen(
         // "Not recording". Today only — a past day isn't "recording", so the light is omitted then.
         // #580 — a connected WHOOP 5/MG streaming live HR but offloading no history reads "Connected"
         // (history sync experimental on 5.0), overriding the honest resolver. Mirrors Swift `recordingState`.
+        item {
         val headerRecordingState: RecordingState? = if (selectedDayOffset == 0) {
             if (liveSnap.connected && liveSnap.historySyncExperimental) {
                 RecordingState.HistoryExperimental
@@ -712,6 +713,7 @@ fun TodayScreen(
                 onRecordingTap = onOpenSettings,
             )
         }
+        }
 
         // Design Reset (iOS parity): the "New here?" first-run card is off the Today dashboard for the
         // clean look — the scoring guide stays reachable from the i on each score and in Settings.
@@ -721,6 +723,7 @@ fun TodayScreen(
         // below are explained rather than just dashed out. A small × dismisses it INTO
         // the Updates inbox (restorable from there). Only anchored to today (offset 0).
         if (displayMetric?.recovery == null) {
+            item {
             // While the strap is mid-offload, say so — empty tiles read as final otherwise (#77).
             if (liveSnap.backfilling) SyncingHistoryNote(chunks = liveSnap.syncChunksThisSession)
             // Explained score state (COMPONENT 2): when there's no own number to show, say WHY and WHAT to
@@ -756,9 +759,10 @@ fun TodayScreen(
                     }
                 }
             }
+            }
         }
 
-        if (alert != null) IllnessBanner(alert!!)
+        if (alert != null) item { IllnessBanner(alert!!) }
 
         // HERO — the three Charge / Effort / Rest score rings, Charge centred + enlarged, floating on a
         // scenic Charge-tinted backdrop (the WHOOP-style hero, #23). The old big gold RecoveryRing hero and
@@ -774,6 +778,7 @@ fun TodayScreen(
         // to a screen-level `SceneScreenBackground` and the hero dropped `.sceneHeroBackground()`. No
         // in-card scene here, and no rounded clip (a flat hero on the screen-level backdrop). The Charge
         // ring value reads WHITE (GlowRing's centre label) with a charge-green arc, matching the iOS source.
+        item {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -797,6 +802,7 @@ fun TodayScreen(
                 onScoreInfo = openGuide,
             )
         }
+        }
 
         // YOUR CARDS — the user-customisable dashboard (WHOOP "My Dashboard"). Surfaces a persisted,
         // reorderable selection of metric cards as flat WHOOP metric rows (leading icon + UPPERCASE label +
@@ -806,6 +812,7 @@ fun TodayScreen(
         // When Hydration tracking is OFF the card is hidden even if it sits in the saved selection (the
         // editor still offers it, so the choice persists), keeping the opt-in feature fully invisible until
         // enabled. Mirrors the iOS yourCardsSection hydration gate.
+        item {
         val visibleDashboardCards = enabledDashboardCards.filter {
             it != DashboardCard.HYDRATION || hydrationEnabled
         }
@@ -831,17 +838,20 @@ fun TodayScreen(
                 onCustomise = { showDashboardEditor = true },
             )
         }
+        }
 
         // The plain-English read-out — the Charge-tinted Synthesis card with a WHITE headline — carries the
         // greeting + the SOLID/CALIBRATING data-confidence pill in its top-right. Mirrors the iOS Synthesis
         // InsightCard. Carries the last scored day's read at the rollover (#543) so it doesn't blank to
         // "No Data". Staggered in as index 2.
+        item {
         Box(modifier = Modifier.fillMaxWidth().staggeredAppear(2)) {
             SynthesisHeroCard(
                 day = displayMetric,
                 recoveryCalibration = recoveryCalibration,
                 carriedDay = lastScoredRecoveryDay,
             )
+        }
         }
 
         // Provenance (COMPONENT 4) now rides UNDER each hero ring as a per-metric badge (Charge names the
@@ -856,6 +866,7 @@ fun TodayScreen(
         // Effort accrues over a day and must never visibly drop: floor the in-progress value at the day's
         // already-earned strain (#489/#506). displayMetric for today is today's row or null, never a prior
         // day, so this can't resurrect a stale day — it only stops the gauge dropping below what's earned.
+        item {
         val todayEffort = if (selectedDayOffset == 0) {
             val live = liveTodayStrain; val stored = displayMetric?.strain
             if (live != null && stored != null) maxOf(live, stored) else (live ?: stored)
@@ -880,30 +891,34 @@ fun TodayScreen(
                 )
             }
         }
+        }
 
         // The three hero vitals — HRV / Resting HR / Respiratory — re-homed below the ring hero now that
         // the big RecoveryRing card (which used to carry them) is gone. Mirrors the iOS metric rows.
         // Carries the last scored day's vitals (with a "Last night · <date>" footnote) at the rollover so
         // they don't blank to "No Data" while live HR ticks (#543). Staggered in as index 3.
+        item {
         Box(modifier = Modifier.fillMaxWidth().staggeredAppear(3)) {
             HeroMetricRows(day = displayMetric, carriedDay = lastScoredRecoveryDay)
+        }
         }
 
         // CONTRIBUTORS (README screen #5, recovery detail) — what drove today's Charge, as labelled
         // progress bars (HRV / Resting HR / Sleep / Respiratory) in the shared stage/zone bar style.
         // Carries the last scored day at the rollover so the bars don't all read "No Data" (#543).
-        RecoveryContributorsSection(day = displayMetric, carriedDay = lastScoredRecoveryDay)
+        item { RecoveryContributorsSection(day = displayMetric, carriedDay = lastScoredRecoveryDay) }
 
         // READINESS — on-device training-readiness synthesis (HRV / resting-HR / load).
         // Mirrors the macOS readinessSection: rendered only once there's enough history. When today isn't
         // scored yet, anchor on the last scored day (#543) so the card doesn't vanish at the rollover.
-        if (selectedDayOffset == 0) ReadinessSection(days, carriedDay = lastScoredRecoveryDay)
+        if (selectedDayOffset == 0) item { ReadinessSection(days, carriedDay = lastScoredRecoveryDay) }
 
         // METRICS — uniform tile grid (two columns), each tile with a 14-day sparkline.
-        Spacer(Modifier.height(Metrics.selectorTopUp))
+        item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
         // Section header + an Edit affordance to open the local layout editor (#251). No new nav
         // destination — a dialog over Today. The Box lets the SectionHeader keep its trailing label while
         // the Edit control sits to its right.
+        item {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.weight(1f)) {
                 SectionHeader("Key Metrics", overline = dayLabel, trailing = "14-day trend")
@@ -921,8 +936,10 @@ fun TodayScreen(
                 Text("Edit", style = NoopType.footnote)
             }
         }
+        }
         // Key Metrics grid, HR trend and Workouts each stagger in as the lower main sections (indices 4–6),
         // mirroring iOS's `.staggeredAppear` on metricsSection / heartRateTrendSection / workoutsSection.
+        item {
         Box(modifier = Modifier.fillMaxWidth().staggeredAppear(4)) {
             MetricGrid(
                 d = displayMetric,
@@ -943,27 +960,34 @@ fun TodayScreen(
                 onScoreInfo = openGuide,
             )
         }
+        }
+        item {
         Box(modifier = Modifier.fillMaxWidth().staggeredAppear(5)) {
             HeartRateTrendCard(viewModel, days, selectedDay, todayDate, displayMetric, effortScale)
         }
+        }
+        item {
         Box(modifier = Modifier.fillMaxWidth().staggeredAppear(6)) {
             TodayWorkoutsSection(footer.recentWorkouts)
+        }
         }
         // Auto-detect workouts (MVP, opt-in, default OFF) — a NON-DESTRUCTIVE "looks like a workout?"
         // card that suggests logging a detected sustained-elevated-HR bout. Renders nothing when the
         // toggle is off or there's nothing to suggest. Save → a manual "Workout" row; × → dismissed forever.
         if (selectedDayOffset == 0) {
-            AutoWorkoutNudgeCard(viewModel = viewModel, days = days)
+            item { AutoWorkoutNudgeCard(viewModel = viewModel, days = days) }
         }
         // Honest, dismissible 12-hourly donation ask — a card in the flow, never a dialog.
-        DonationNudgeCard()
+        item { DonationNudgeCard() }
         // Support — an in-content card (heart.fill in metricRose, "Donate or get in touch — totally
         // optional.", chevron). The Support heart left the header cluster for parity with iOS, where
         // Support is an in-flow supportRow near the donation nudge (still reachable via More → Support).
-        SupportRow(onSupport = onSupport)
+        item { SupportRow(onSupport = onSupport) }
         // Strap battery only while the link is up AND a real reading exists — a stale % from a
         // dropped connection must not present as live (#159).
-        TodaySourcesSection(footer, strapBatteryPct = if (liveSnap.connected) liveSnap.batteryPct?.roundToInt() else null)
+        item {
+            TodaySourcesSection(footer, strapBatteryPct = if (liveSnap.connected) liveSnap.batteryPct?.roundToInt() else null)
+        }
     }
 
     // Scoring guide sheet — full-screen Dialog, mirroring Settings' What's-new presentation. Opened

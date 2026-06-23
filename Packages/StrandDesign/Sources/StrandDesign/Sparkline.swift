@@ -62,38 +62,52 @@ public struct Sparkline: View {
         return (lo - pad, hi + pad)
     }
 
+    /// The area-wash top colour (gradient sampled at 0.7, dimmed). Computed once per body eval instead of
+    /// re-sampling the gradient inside the ZStack on every draw.
+    private var areaWashColor: Color {
+        StrandPalette.sample(stops: gradient.stops, at: 0.7).opacity(0.22)
+    }
+    /// The head-dot ring colour (gradient sampled at its bright end). Computed once per body eval.
+    private var headColor: Color {
+        StrandPalette.sample(stops: gradient.stops, at: 1.0)
+    }
+
     public var body: some View {
         GeometryReader { geo in
             let pts = points(in: geo.size)
             ZStack {
-                if showsArea, pts.count > 1 {
-                    areaPath(pts, in: geo.size)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    StrandPalette.sample(stops: gradient.stops, at: 0.7).opacity(0.22),
-                                    Color.clear
-                                ],
-                                startPoint: .top, endPoint: .bottom
+                // STATIC LAYER: area wash + gradient line + head dot. These rebuild only when the
+                // values/size change, so flatten them into ONE cached GPU layer via .drawingGroup() —
+                // the sparkline is a flat fill/stroke (no blur), so the raster is pixel-identical. The
+                // hover crosshair/tooltip stay OUTSIDE this group so they don't force the line to
+                // re-rasterize on every pointer move.
+                ZStack {
+                    if showsArea, pts.count > 1 {
+                        areaPath(pts, in: geo.size)
+                            .fill(
+                                LinearGradient(
+                                    colors: [areaWashColor, Color.clear],
+                                    startPoint: .top, endPoint: .bottom
+                                )
                             )
-                        )
+                    }
+                    if pts.count > 1 {
+                        linePath(pts)
+                            .stroke(
+                                LinearGradient(gradient: gradient, startPoint: .leading, endPoint: .trailing),
+                                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+                            )
+                    }
+                    if showsHead, let head = pts.last {
+                        // Design Reset (WHOOP): a crisp solid leading dot, no blurred bloom halo.
+                        // The line colour reads as the head ring; a small core sits inside it.
+                        Circle().fill(headColor).frame(width: lineWidth * 2.2, height: lineWidth * 2.2)
+                            .position(head)
+                        Circle().fill(StrandPalette.tipCore).frame(width: lineWidth * 1.0, height: lineWidth * 1.0)
+                            .position(head)
+                    }
                 }
-                if pts.count > 1 {
-                    linePath(pts)
-                        .stroke(
-                            LinearGradient(gradient: gradient, startPoint: .leading, endPoint: .trailing),
-                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-                        )
-                }
-                if showsHead, let head = pts.last {
-                    // Design Reset (WHOOP): a crisp solid leading dot, no blurred bloom halo.
-                    // The line colour reads as the head ring; a small core sits inside it.
-                    let c = StrandPalette.sample(stops: gradient.stops, at: 1.0)
-                    Circle().fill(c).frame(width: lineWidth * 2.2, height: lineWidth * 2.2)
-                        .position(head)
-                    Circle().fill(StrandPalette.tipCore).frame(width: lineWidth * 1.0, height: lineWidth * 1.0)
-                        .position(head)
-                }
+                .drawingGroup()
 
                 // Hover affordance: crosshair + highlighted sample + tooltip.
                 if showsHover, !values.isEmpty, let hx = hoverX,

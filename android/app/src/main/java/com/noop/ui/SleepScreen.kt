@@ -44,6 +44,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -126,7 +127,20 @@ fun SleepScreen(
     onOpenJournal: () -> Unit = {},
 ) {
     val days by vm.recentDays.collectAsStateWithLifecycle()
+
+    // PERF (#scroll-jank): the BLE live state ticks ~1Hz. This screen reads `live` ONLY for the
+    // "syncing history" note (backfilling + the chunk count), so reading the whole `live` object at
+    // body scope recomposed the entire Sleep screen on every HR tick. Collapse it to the two fields the
+    // note needs via a structural-equality snapshot: a 72→73 bpm tick produces an EQUAL snapshot and
+    // the body is NOT recomposed; it only recomposes when the backfilling state / chunk count actually
+    // changes. Mirrors the shipped Today liveSnap fix. Appearance-preserving.
     val live by vm.live.collectAsStateWithLifecycle()
+    val backfillNote by remember {
+        derivedStateOf {
+            val s = live
+            if (s.backfilling) s.syncChunksThisSession else null
+        }
+    }
 
     // Every recorded sleep BLOCK, oldest→newest — the hero's ◀/▶ chevrons walk this whole list,
     // including same-day naps / split sleep that `sleepSessionsMerged` collapses to one-per-night
@@ -306,24 +320,29 @@ fun SleepScreen(
         if (dayIdx >= 0) nightOffset = dayIdx
     }
 
-    ScreenScaffold(title = "Sleep", subtitle = "Last night, read in two seconds.") {
+    LazyScreenScaffold(title = "Sleep", subtitle = "Last night, read in two seconds.") {
         if (model == null && night == null) {
             // While the strap is mid-offload, say so — "No nights" reads as final otherwise (#77).
-            if (live.backfilling) SyncingHistoryNote(chunks = live.syncChunksThisSession)
-            SleepEmptyState()
+            item {
+                if (backfillNote != null) SyncingHistoryNote(chunks = backfillNote!!)
+                SleepEmptyState()
+            }
         } else {
             // REST HERO — a scenic indigo backdrop with the night's sleep-performance score as a
             // layered BevelGauge (Rest gradient), else a big rounded hours-slept headline. Mirrors the
             // macOS SleepView.restHero. Presentation-only — reads the existing model figures. (Bevel)
-            RestHero(
-                score = model?.performance?.latest,
-                asleepMin = model?.stages?.asleep,
-                source = restHeroSource(imported, days),
-            )
-            Spacer(Modifier.height(Metrics.selectorTopUp))
+            item {
+                RestHero(
+                    score = model?.performance?.latest,
+                    asleepMin = model?.stages?.asleep,
+                    source = restHeroSource(imported, days),
+                )
+            }
+            item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
             // SLEEP MARKS — tap to log "going to sleep" / "I'm awake" (#461, Phase 1). LOGGING ONLY:
             // a mark is persisted to the `sleep_mark` series + the shareable strap log; it never
             // changes the detected sleep. Mirrors macOS SleepView.sleepMarkCard.
+            item {
             SleepMarkCard(
                 onMark = { type ->
                     val mark = SleepMark.now(type)
@@ -337,7 +356,9 @@ fun SleepScreen(
                     Toast.makeText(context, mark.confirmation(), Toast.LENGTH_SHORT).show()
                 },
             )
-            Spacer(Modifier.height(Metrics.selectorTopUp))
+            }
+            item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
+            item {
             Hero(
                 display = display,
                 clock = night?.clockLabel ?: model?.clockLabel,
@@ -397,19 +418,23 @@ fun SleepScreen(
                 habitualMidsleepSec = habitualMidsleep,
                 motionEpochs = night?.groupMotion ?: emptyList(),
             )
+            }
             if (model != null) {
-                Spacer(Modifier.height(Metrics.selectorTopUp))
-                MetricGrid(model, onMetricClick = { detailMetricKey = it })
-                Spacer(Modifier.height(Metrics.selectorTopUp))
-                SleepDebtLedgerCard(model.sleepDebtLedger)
-                Spacer(Modifier.height(Metrics.selectorTopUp))
-                StagesVsTypical(model)
-                Spacer(Modifier.height(Metrics.selectorTopUp))
-                DurationTrend(model)
-                Spacer(Modifier.height(Metrics.selectorTopUp))
-                HoursVsNeededCard(model)
-                Spacer(Modifier.height(Metrics.selectorTopUp))
-                SleepConsistencyCard(sleeps)
+                // Bind a non-null local so the smart-cast carries cleanly into each item {} lambda
+                // (a nullable val doesn't smart-cast across a lambda boundary). Same model, same order.
+                val m = model
+                item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
+                item { MetricGrid(m, onMetricClick = { detailMetricKey = it }) }
+                item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
+                item { SleepDebtLedgerCard(m.sleepDebtLedger) }
+                item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
+                item { StagesVsTypical(m) }
+                item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
+                item { DurationTrend(m) }
+                item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
+                item { HoursVsNeededCard(m) }
+                item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
+                item { SleepConsistencyCard(sleeps) }
             }
         }
     }

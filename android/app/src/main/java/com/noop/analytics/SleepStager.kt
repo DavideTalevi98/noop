@@ -891,8 +891,32 @@ object SleepStager {
         return Pair(o, f)
     }
 
-    /** Build a 30 s hypnogram for [start, end] and return StageSegments. */
+    /**
+     * Build a 30 s hypnogram for [start, end] and return StageSegments.
+     *
+     * PERF (v7.0.2 / #707): staging is the heaviest per-night step on the model path and it was being
+     * re-run for EVERY detected night on EVERY [IntelligenceEngine.analyzeRecent] — ~21× per post-sync
+     * pass, again per sleep edit, and up to thousands of nights on the one-shot full-history Effort rescore
+     * (maxDays=4000). It is a pure function of (start, end, samples), so this is a thin cache veneer over
+     * [stageSessionUncached]: each distinct night stages AT MOST ONCE, peak heap stays flat across repeated
+     * passes, and the output is byte-identical (the cached list is the same one the recipe produced, handed
+     * back as a fresh copy so a caller extending a segment in place can never poison the cache). Edits
+     * invalidate naturally — a moved bed/wake time changes start/end → new key; newly-banked samples change
+     * the per-stream count/edge-ts/checksum → new key (see [StagerCache.fingerprint]).
+     */
     internal fun stageSession(
+        start: Long, end: Long, grav: List<GravitySample>,
+        hr: List<HrSample>, rr: List<RrInterval>, resp: List<RespSample>,
+    ): List<StageSegment> {
+        val key = StagerCache.fingerprint(StagerCache.Version.V1, start, end, grav, hr, rr, resp)
+        StagerCache.get(key)?.let { return StagerCache.copyOf(it) }
+        val segments = stageSessionUncached(start, end, grav, hr, rr, resp)
+        StagerCache.put(key, segments)
+        return StagerCache.copyOf(segments)
+    }
+
+    /** The pure recipe, exactly as before — extracted so [stageSession] can memoize it. */
+    private fun stageSessionUncached(
         start: Long, end: Long, grav: List<GravitySample>,
         hr: List<HrSample>, rr: List<RrInterval>, resp: List<RespSample>,
     ): List<StageSegment> {
