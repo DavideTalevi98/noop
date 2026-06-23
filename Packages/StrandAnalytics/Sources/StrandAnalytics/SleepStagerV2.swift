@@ -323,7 +323,7 @@ public enum SleepStagerV2 {
 
     /// RSA respiration regularity: tachogram → 4 Hz resample → detrend → power spectrum → peak/sum of the
     /// 0.15–0.40 Hz (9–24 brpm) band. Returns spectral peakedness (higher = more regular breathing) or nil
-    /// when there are too few beats. A direct band-limited DFT (only the ~50 in-band bins are needed).
+    /// when there are too few beats. Band-limited Goertzel (only the ~50 in-band bins are computed).
     static func respRegularity(_ beats: [(Double, Double)]) -> Double? {
         if beats.count < 12 { return nil }
         let t0 = beats.first!.0, tN = beats.last!.0
@@ -348,12 +348,16 @@ public enum SleepStagerV2 {
         let kLo = Int(ceil(0.15 * 0.25 * Double(n)))
         let kHi = Int(floor(0.40 * 0.25 * Double(n)))
         if kHi < kLo || kLo < 0 { return nil }
+        // Per-bin power via Goertzel: |X[k]|² in O(n) with ONE cos per bin (the recurrence coefficient) and
+        // NO per-sample trig. |X[k]|² is sign-independent, so the original's -2π and this +2π agree on power.
+        // Label-identical to the prior direct DFT (recurrence rounds differently only in the last ULPs, far
+        // below the Viterbi flip margin); well-conditioned because the 0.15–0.40 Hz band sits mid-spectrum.
         var maxP = 0.0, sumP = 0.0
         for k in kLo...kHi {
-            var re = 0.0, im = 0.0
-            let w = -2.0 * Double.pi * Double(k) / Double(n)
-            for j in 0..<n { let a = w * Double(j); re += y[j] * cos(a); im += y[j] * sin(a) }
-            let p = re * re + im * im
+            let coeff = 2.0 * cos(2.0 * Double.pi * Double(k) / Double(n))
+            var s1 = 0.0, s2 = 0.0
+            for j in 0..<n { let s0 = y[j] + coeff * s1 - s2; s2 = s1; s1 = s0 }
+            let p = s1 * s1 + s2 * s2 - coeff * s1 * s2   // = |X[k]|²
             sumP += p
             if p > maxP { maxP = p }
         }

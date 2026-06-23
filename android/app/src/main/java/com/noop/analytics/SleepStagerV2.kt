@@ -356,9 +356,9 @@ object SleepStagerV2 {
     /**
      * RSA respiration regularity: tachogram → 4 Hz resample → detrend → power spectrum → peak/sum of the
      * 0.15–0.40 Hz (9–24 brpm) band. Returns spectral peakedness (higher = more regular breathing) or null
-     * when there are too few beats. A direct band-limited DFT (only the ~50 in-band bins are needed).
+     * when there are too few beats. Band-limited Goertzel (only the ~50 in-band bins are computed).
      */
-    private fun respRegularity(beats: List<Pair<Double, Double>>): Double? {
+    internal fun respRegularity(beats: List<Pair<Double, Double>>): Double? {
         if (beats.size < 12) return null
         val t0 = beats.first().first; val tN = beats.last().first
         if (tN <= t0) return null
@@ -382,12 +382,15 @@ object SleepStagerV2 {
         val kLo = ceil(0.15 * 0.25 * n).toInt()
         val kHi = floor(0.40 * 0.25 * n).toInt()
         if (kHi < kLo || kLo < 0) return null
+        // Per-bin power via Goertzel: |X[k]|² in O(n) with one cos per bin (the recurrence coefficient) and
+        // no per-sample trig. |X[k]|² is sign-independent, so the original's -2π and this +2π agree on power.
+        // Label-identical to the prior direct DFT (ULP-level rounding only); well-conditioned mid-band. Mirrors Swift.
         var maxP = 0.0; var sumP = 0.0
         for (k in kLo..kHi) {
-            var re = 0.0; var im = 0.0
-            val w = -2.0 * PI * k / n
-            for (j in 0 until n) { val a = w * j; re += y[j] * cos(a); im += y[j] * sin(a) }
-            val p = re * re + im * im
+            val coeff = 2.0 * cos(2.0 * PI * k / n)
+            var s1 = 0.0; var s2 = 0.0
+            for (j in 0 until n) { val s0 = y[j] + coeff * s1 - s2; s2 = s1; s1 = s0 }
+            val p = s1 * s1 + s2 * s2 - coeff * s1 * s2   // = |X[k]|²
             sumP += p
             if (p > maxP) maxP = p
         }

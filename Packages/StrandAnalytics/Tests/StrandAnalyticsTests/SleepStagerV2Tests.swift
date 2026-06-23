@@ -160,4 +160,27 @@ final class SleepStagerV2Tests: XCTestCase {
         XCTAssertTrue(v2Stages.contains("deep"), "V2 night should express deep")
         XCTAssertTrue(v2Stages.contains("rem"), "V2 night should express REM")
     }
+
+    // MARK: - RSA respiration spectral path (Goertzel) — known-answer guards
+
+    func testRespRegularityPeaksOnPeriodicTachogram() {
+        // A tachogram (R-R vs time) oscillating at 0.25 Hz — squarely in the 0.15–0.40 Hz band — must
+        // concentrate band power in one bin, so peakedness is high. Known-answer guard on the Goertzel path.
+        var beats: [(Double, Double)] = []
+        var t = 0.0
+        while t < 80.0 {
+            let rr = 800.0 + 120.0 * sin(2.0 * Double.pi * 0.25 * t)
+            beats.append((t, rr))
+            t += rr / 1000.0   // next beat after this R-R interval
+        }
+        let peak = SleepStagerV2.respRegularity(beats)
+        XCTAssertNotNil(peak)
+        XCTAssertGreaterThan(peak!, 0.2, "a clean 0.25 Hz rhythm must show a strong spectral peak")
+    }
+
+    func testRespRegularityNilOnFlatTachogram() {
+        // Constant R-R → zero variance after detrend → no spectral content → nil.
+        let beats = (0..<80).map { (Double($0) * 0.8, 800.0) }
+        XCTAssertNil(SleepStagerV2.respRegularity(beats))
+    }
 }
