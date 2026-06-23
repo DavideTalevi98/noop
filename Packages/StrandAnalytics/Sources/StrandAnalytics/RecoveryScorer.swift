@@ -64,16 +64,25 @@ public enum RecoveryScorer {
     /// Sleep-performance scale (±2 z spans the normal range).
     public static let sleepPerfScale: Double = 0.12
 
-    /// Rolling-mean HR window (seconds) for the resting-HR estimate.
+    /// Bin width (seconds) for the sustained resting-HR estimate: non-overlapping 5-min blocks.
     public static let restingHRWindowS: Int = 5 * 60
+    /// A 5-min bin must hold at least this many HR samples to count as a sustained level — one lone beat
+    /// is an artifact, not a resting floor. No-op for dense ~1 Hz live data; raise for coarser streams.
+    public static let restingHRMinBinSamples = 2
+    /// Lowest physiologically-plausible sleeping HR (bpm). A bin mean below this is a dropout/motion
+    /// artifact (reads low) and is rejected. No UPPER bound on purpose: the min already ignores high
+    /// outliers, and a cap would blunt the elevated-RHR illness signal that consumes this value.
+    public static let restingHRMinPlausibleBpm = 25.0
 
     // MARK: - Resting HR
 
     /// Lowest sustained HR during the in-bed window (bpm, rounded), or nil.
     ///
-    /// "Sustained" = the minimum of 5-minute non-overlapping bin means of the HR
-    /// samples whose ts ∈ [start, end]. Rejects single-beat dips while capturing
-    /// the night's true floor. Returns nil when there are no HR samples in window.
+    /// "Sustained" = the minimum over non-overlapping 5-minute bins of each bin's mean HR (ts ∈
+    /// [start, end]), counting only bins with at least `restingHRMinBinSamples` samples and a plausible
+    /// (≥ `restingHRMinPlausibleBpm`) mean. Rejects single-beat dips and dropout artifacts while capturing
+    /// the night's true floor. Falls back to the floored window mean when no bin qualifies. Returns nil
+    /// when there are no HR samples in window.
     public static func restingHR(_ hr: [HRSample], start: Int, end: Int) -> Int? {
         let seg = hr.filter { $0.ts >= start && $0.ts <= end }
         guard !seg.isEmpty else { return nil }
@@ -82,8 +91,9 @@ public enum RecoveryScorer {
         var t = start
         while t < end {
             let win = seg.filter { $0.ts >= t && $0.ts < t + restingHRWindowS }
-            if !win.isEmpty {
-                means.append(Double(win.reduce(0) { $0 + $1.bpm }) / Double(win.count))
+            if win.count >= restingHRMinBinSamples {
+                let mean = Double(win.reduce(0) { $0 + $1.bpm }) / Double(win.count)
+                if mean >= restingHRMinPlausibleBpm { means.append(mean) }
             }
             t += restingHRWindowS
         }
@@ -91,7 +101,8 @@ public enum RecoveryScorer {
         if let m = means.min() {
             floor = m
         } else {
-            floor = Double(seg.reduce(0) { $0 + $1.bpm }) / Double(seg.count)
+            let segMean = Double(seg.reduce(0) { $0 + $1.bpm }) / Double(seg.count)
+            floor = Swift.max(restingHRMinPlausibleBpm, segMean)
         }
         return Int(floor.rounded())
     }

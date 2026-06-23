@@ -175,4 +175,27 @@ final class RecoveryScorerTests: XCTestCase {
     func testRestingHRNilWhenNoSamples() {
         XCTAssertNil(RecoveryScorer.restingHR([], start: 0, end: 1000))
     }
+
+    func testRestingHRIgnoresLoneBeatDip() {
+        // Two well-sampled blocks (mean 60, mean 50) plus a single isolated low beat (30 bpm) alone in
+        // its own 5-min bin. The lone beat must NOT become the floor — its bin has < restingHRMinBinSamples
+        // samples, so it is dropped and the floor stays the real 50 (old code would have returned 30).
+        var hr: [HRSample] = []
+        let start = 1000
+        for i in 0..<300 { hr.append(HRSample(ts: start + i, bpm: 60)) }        // bin 0 → 60
+        for i in 0..<300 { hr.append(HRSample(ts: start + 300 + i, bpm: 50)) }  // bin 1 → 50
+        hr.append(HRSample(ts: start + 600, bpm: 30))                           // bin 2 → lone beat
+        XCTAssertEqual(RecoveryScorer.restingHR(hr, start: start, end: start + 900), 50)
+    }
+
+    func testRestingHRRejectsImplausiblyLowBin() {
+        // A fully-sampled bin whose mean is below the physiological floor (10 bpm dropout) is an artifact,
+        // not a resting level: it is rejected and the floor stays the real 50 (old code would return 10).
+        var hr: [HRSample] = []
+        let start = 1000
+        for i in 0..<300 { hr.append(HRSample(ts: start + i, bpm: 60)) }        // bin 0 → 60
+        for i in 0..<300 { hr.append(HRSample(ts: start + 300 + i, bpm: 50)) }  // bin 1 → 50
+        for i in 0..<300 { hr.append(HRSample(ts: start + 600 + i, bpm: 10)) }  // bin 2 → 10 (< floor)
+        XCTAssertEqual(RecoveryScorer.restingHR(hr, start: start, end: start + 900), 50)
+    }
 }

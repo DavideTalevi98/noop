@@ -89,8 +89,15 @@ object RecoveryScorer {
     /** Sleep-performance scale (±2 z spans the normal range). */
     const val sleepPerfScale: Double = 0.12
 
-    /** Rolling-mean HR window (seconds) for the resting-HR estimate. */
+    /** Bin width (seconds) for the sustained resting-HR estimate: non-overlapping 5-min blocks. */
     const val restingHRWindowS: Int = 5 * 60
+    /** A 5-min bin must hold at least this many HR samples to count as a sustained level — one lone beat
+     *  is an artifact, not a resting floor. No-op for dense ~1 Hz live data; raise for coarser streams. */
+    const val restingHRMinBinSamples = 2
+    /** Lowest plausible sleeping HR (bpm): a bin mean below this is a dropout/motion artifact and is
+     *  rejected. No upper bound on purpose — the min ignores high outliers, and a cap would blunt the
+     *  elevated-RHR illness signal that consumes this value. */
+    const val restingHRMinPlausibleBpm = 25.0
 
     // ─────────────────────────────────────────────────────────────────────────
     // Resting HR
@@ -99,9 +106,11 @@ object RecoveryScorer {
     /**
      * Lowest sustained HR during the in-bed window (bpm, rounded), or null.
      *
-     * "Sustained" = the minimum of 5-minute non-overlapping bin means of the HR
-     * samples whose ts ∈ [start, end]. Rejects single-beat dips while capturing
-     * the night's true floor. Returns null when there are no HR samples in window.
+     * "Sustained" = the minimum over non-overlapping 5-minute bins of each bin's mean HR
+     * (ts ∈ [start, end]), counting only bins with at least [restingHRMinBinSamples] samples
+     * and a plausible (>= [restingHRMinPlausibleBpm]) mean. Rejects single-beat dips and dropout
+     * artifacts while capturing the night's true floor. Falls back to the floored window mean when
+     * no bin qualifies. Returns null when there are no HR samples in window.
      *
      * @param start / @param end window bounds, unix SECONDS (Long).
      */
@@ -114,13 +123,14 @@ object RecoveryScorer {
         while (t < end) {
             val binEnd = t + restingHRWindowS
             val win = seg.filter { it.ts >= t && it.ts < binEnd }
-            if (win.isNotEmpty()) {
-                means.add(win.sumOf { it.bpm }.toDouble() / win.size.toDouble())
+            if (win.size >= restingHRMinBinSamples) {
+                val mean = win.sumOf { it.bpm }.toDouble() / win.size.toDouble()
+                if (mean >= restingHRMinPlausibleBpm) means.add(mean)
             }
             t += restingHRWindowS
         }
         val floor: Double = means.minOrNull()
-            ?: (seg.sumOf { it.bpm }.toDouble() / seg.size.toDouble())
+            ?: maxOf(restingHRMinPlausibleBpm, seg.sumOf { it.bpm }.toDouble() / seg.size.toDouble())
         return floor.roundToInt()
     }
 
