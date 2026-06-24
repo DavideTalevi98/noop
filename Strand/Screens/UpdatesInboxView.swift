@@ -23,6 +23,7 @@ struct UpdatesInboxView: View {
             header
                 .background(StrandPalette.surfaceRaised)
             Divider().overlay(StrandPalette.hairline)
+            if updateStore.canUndo { undoBar }
             content
             if !updateStore.items.isEmpty {
                 Divider().overlay(StrandPalette.hairline)
@@ -152,6 +153,36 @@ struct UpdatesInboxView: View {
             .disabled(updateStore.unreadCount == 0)
         }
         .padding(16)
+    }
+
+    // MARK: Undo bar
+
+    /// A within-session safety net after Clear all: restore the just-cleared inbox, or let it auto-hide
+    /// after ~6 s. Mirrors the Android Undo bar; the `.task(id:)` is the SwiftUI twin of its LaunchedEffect.
+    private var undoBar: some View {
+        HStack {
+            let n = updateStore.lastRemoved.count
+            Text("Cleared \(n) notification\(n == 1 ? "" : "s")")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Spacer()
+            Button("Undo") {
+                StrandHaptic.selection.play()
+                withAnimation(StrandMotion.interactive) { updateStore.undoRemoval() }
+            }
+            .buttonStyle(.plain)
+            .font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(StrandPalette.accent)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(StrandPalette.surfaceRaised)
+        .task(id: updateStore.lastRemoved.count) {
+            // Auto-hide the undo window (~6 s), cancelled if the count changes or the view goes away.
+            guard updateStore.canUndo else { return }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            updateStore.forgetUndo()
+        }
     }
 
     // MARK: Actions

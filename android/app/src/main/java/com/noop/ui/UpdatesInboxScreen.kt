@@ -49,6 +49,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 
 // MARK: - Updates inbox
 //
@@ -92,6 +94,34 @@ fun UpdatesInboxScreen(
             Overline("Inbox", color = Palette.textTertiary)
             Text("Updates", style = NoopType.title1, color = Palette.textPrimary)
             Text(subtitle(store), style = NoopType.caption, color = Palette.textSecondary)
+        }
+
+        // Undo bar — a within-session safety net after a Clear all. Auto-hides after ~6 s (the
+        // LaunchedEffect), or on Undo, which restores the just-cleared inbox. Sits over the empty state
+        // or above the list.
+        if (store.canUndo) {
+            LaunchedEffect(store.lastRemoved.size) {
+                delay(6_000L)            // undo window
+                store.forgetUndo()
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Palette.surfaceInset, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val n = store.lastRemoved.size
+                Text(
+                    "Cleared $n notification${if (n == 1) "" else "s"}",
+                    style = NoopType.subhead,
+                    color = Palette.textSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { store.undoRemoval() }) {
+                    Text("Undo", style = NoopType.subhead, color = Palette.accent)
+                }
+            }
         }
 
         if (store.items.isEmpty()) {

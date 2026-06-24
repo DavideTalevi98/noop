@@ -157,6 +157,15 @@ class UpdateStore private constructor(private val prefs: SharedPreferences) {
      *  back. Cleared by the observer once handled. Mirrors the Swift `restoreRequest`. */
     var restoreRequest: String? by mutableStateOf(null)
 
+    /** The most recent batch of items the user removed (one via swipe-dismiss, all via Clear all), kept so
+     *  an accidental dismissal can be undone. Empty once consumed by [undoRemoval] or superseded by the next
+     *  user removal. NOT persisted — undo is a within-session safety net (a relaunch starts clean). Snapshot
+     *  state so the Undo affordance recomposes on change. Mirrors the Swift `lastRemoved`. */
+    val lastRemoved: androidx.compose.runtime.snapshots.SnapshotStateList<UpdateItem> = mutableStateListOf()
+
+    /** True when there is a removal that can be undone — drives the Undo snackbar/affordance. */
+    val canUndo: Boolean get() = lastRemoved.isNotEmpty()
+
     init {
         load()
     }
@@ -234,17 +243,39 @@ class UpdateStore private constructor(private val prefs: SharedPreferences) {
         persist()
     }
 
-    /** Remove one item (e.g. after restoring a dismissed card). */
+    /** Remove one item programmatically (e.g. after restoring a dismissed card) — NOT undoable, since it
+     *  isn't an accidental user-initiated clear. */
     fun remove(id: String) {
         val removed = items.removeAll { it.id == id }
         if (removed) persist()
     }
 
-    /** Empty the inbox. */
+    /** Empty the inbox — snapshotting the whole list into [lastRemoved] first, so an accidental Clear all
+     *  can be reversed with [undoRemoval]. */
     fun clearAll() {
         if (items.isEmpty()) return
+        lastRemoved.clear()
+        lastRemoved.addAll(items)
         items.clear()
         persist()
+    }
+
+    /** Restore the most recently cleared inbox (the [clearAll] snapshot). No-op if nothing is pending. Re-adds
+     *  in the original order, skipping any id already back in the inbox (e.g. a fresh post landed during the
+     *  undo window), then clears the buffer — a clear can be undone once. Newest-first ordering is re-derived
+     *  at read. Mirrors Swift. */
+    fun undoRemoval() {
+        if (lastRemoved.isEmpty()) return
+        val present = items.mapTo(HashSet()) { it.id }
+        for (it in lastRemoved) if (it.id !in present) items.add(it)
+        lastRemoved.clear()
+        persist()
+    }
+
+    /** Discard the undo buffer without restoring — the Undo window elapsed, or the inbox closed. No-op when
+     *  empty. */
+    fun forgetUndo() {
+        if (lastRemoved.isNotEmpty()) lastRemoved.clear()
     }
 
     // MARK: Seeding

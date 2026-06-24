@@ -73,6 +73,14 @@ final class UpdateStore: ObservableObject {
     /// shared key, so this is belt-and-braces for an already-mounted Today.)
     @Published var restoreRequest: String?
 
+    /// The most recent batch of items the user removed (one via swipe-dismiss, all via Clear all), kept so
+    /// an accidental dismissal can be undone. Empty once consumed by `undoRemoval()` or superseded by the
+    /// next user removal. NOT persisted — undo is a within-session safety net (a relaunch starts clean).
+    @Published private(set) var lastRemoved: [UpdateItem] = []
+
+    /// True when there's a removal that can be undone — drives the Undo affordance.
+    var canUndo: Bool { !lastRemoved.isEmpty }
+
     private let d = UserDefaults.standard
     private enum K {
         static let items = "updates.items"
@@ -164,15 +172,34 @@ final class UpdateStore: ObservableObject {
         for i in items.indices { items[i].read = true }
     }
 
-    /// Remove one item (e.g. after restoring a dismissed card).
+    /// Remove one item programmatically (e.g. after restoring a dismissed card) — NOT undoable, since it
+    /// isn't an accidental user-initiated clear.
     func remove(_ id: UUID) {
         items.removeAll { $0.id == id }
     }
 
-    /// Empty the inbox.
+    /// Empty the inbox — snapshotting the whole list into `lastRemoved` first, so an accidental Clear all
+    /// can be reversed with `undoRemoval()`.
     func clearAll() {
         guard !items.isEmpty else { return }
+        lastRemoved = items
         items.removeAll()
+    }
+
+    /// Restore the most recently cleared inbox (the `clearAll()` snapshot). No-op if nothing is pending.
+    /// Re-adds in the original order, skipping any id already back in the inbox (e.g. a fresh post landed
+    /// during the undo window), then clears the buffer — a clear can be undone once. Newest-first ordering
+    /// is re-derived by `sortedItems`.
+    func undoRemoval() {
+        guard !lastRemoved.isEmpty else { return }
+        let present = Set(items.map { $0.id })
+        items.append(contentsOf: lastRemoved.filter { !present.contains($0.id) })
+        lastRemoved = []
+    }
+
+    /// Discard the undo buffer without restoring — the Undo window elapsed, or the inbox closed.
+    func forgetUndo() {
+        if !lastRemoved.isEmpty { lastRemoved = [] }
     }
 
     /// Ask Today to restore a dismissed card (flips its `@AppStorage` flag). Also removes the inbox item.
