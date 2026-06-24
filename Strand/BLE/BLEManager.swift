@@ -387,6 +387,11 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Wall time the encrypted bond was established this connection, to measure how soon a drop follows
     /// the bond (the #617 bond-loop tell). nil until bonded; cleared on disconnect.
     private var bondedAt: Date?
+    /// Monotonic per-connection token, bumped on every `didConnect`. The #711 bond-loop stabilization
+    /// check captures it and clears the re-pair guide only if it's UNCHANGED when the check fires — i.e.
+    /// the SAME continuous connection survived. (CoreBluetooth reuses the CBPeripheral object across
+    /// reconnects, so a `===` identity check would NOT distinguish a healthy session from a later loop cycle.)
+    private var connectGeneration = 0
     /// #126 false-alarm guard: tracks CONSECUTIVE console-only completed syncs so the "clock has lost
     /// sync" banner only fires on sustained emptiness, not a single transient empty cycle on a healthy strap.
     private var emptySyncTracker = EmptySyncTracker()
@@ -742,6 +747,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // (manual) reconnect attempts the full R10/R11 stream again rather than inheriting old suspicion.
         marginalRadio.reset()
         postBondLoop.reset()   // #617: a clean teardown clears the bond-loop streak so a manual reconnect starts fresh
+        state.reconnectGuide = nil   // #711: a user-initiated teardown resolves the re-pair guide (no longer looping)
         readoptingTo = nil   // #52: a clean teardown abandons any in-flight pin handoff
         standardHRFallback = false
         state.standardHRMode = nil
@@ -2184,7 +2190,27 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // only — BLEManager stays decoupled from the store and the connect flow below is unchanged.
         connectedPeripheralUUID = peripheral.identifier.uuidString
         state.connected = true
-        state.reconnectGuide = nil    // a connect succeeded — the stale-bond guide (if shown) is resolved
+        // A connect succeeded → clear the stale-bond re-pair guide — UNLESS we're in a known bond-loop
+        // (#617). In that loop the strap "connects" every ~3 s before timing out again, so clearing here
+        // wiped the guide on EVERY cycle: it flashed for ~1 s and vanished, so the user could never read it
+        // (#711). While tripped, keep the guide up and instead clear it once THIS connection proves healthy
+        // — i.e. it survives past the loop's quick-timeout window (below) — or on a clean teardown
+        // (`disconnect()` resets the detector and clears the guide too).
+        connectGeneration &+= 1
+        if postBondLoop.tripped {
+            let gen = connectGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + postBondLoop.quickTimeoutWindow + 1) { [weak self] in
+                // Clear only if the SAME continuous connection is still up: a reconnect (loop cycle) bumps
+                // `connectGeneration`, so a transient cycle-connect can't satisfy this even though the
+                // CBPeripheral object is reused. Without the generation, the timer could fire during a later
+                // cycle's brief connect and wrongly wipe the guide — back to flashing.
+                guard let self, self.state.connected, self.connectGeneration == gen else { return }
+                self.postBondLoop.reset()        // survived the window → the bond-loop is resolved
+                self.state.reconnectGuide = nil
+            }
+        } else {
+            state.reconnectGuide = nil
+        }
         lastDataAt = Date()
         log("Connected — discovering services")
         discoverPrimaryServices(on: peripheral)
