@@ -713,13 +713,16 @@ public final class BLEManager: NSObject, ObservableObject {
         if let p = existing.first(where: { isPreferredPeripheral($0) }) {
             log("Found existing \(model.displayName) connection \(p.identifier) — attaching")
             preparePeripheral(p)
-            if p.state == .connected {
-                state.connected = true
-                discoverPrimaryServices(on: p)
-                enableLiveNotifications(reason: "attached connection")
-            } else {
-                central.connect(p, options: nil)
-            }
+            // Attach OUR OWN session even when CoreBluetooth reports the strap `.connected`. On Apple
+            // platforms LE connections are shared system-wide, so a strap held by the WHOOP app, a prior
+            // NOOP session, or the OS reads `.connected` while NOOP has NO session of its own. The old
+            // `.connected` branch flipped `state.connected = true` and jumped straight to discovery +
+            // notifications — which then silently delivered nothing, so the UI claimed "connected" but no
+            // data ever flowed (#689). `connect(_:)` on an already-system-connected peripheral fires
+            // `didConnect` ~immediately, which runs the normal discover → bond → notify flow and sets
+            // `state.connected` only once OUR link is actually up — so we never falsely report "connected"
+            // either.
+            central.connect(p, options: nil)
             return
         }
         // Pinned to a specific strap that isn't already open → connect it DIRECTLY by identifier. A scan
