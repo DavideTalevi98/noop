@@ -3909,7 +3909,8 @@ class WhoopBleClient(
         // tally whenever anything actually landed — the win-rate signal a log previously lacked. Mirrors
         // the Swift exitBackfilling.
         Backfiller.sessionSummaryLine(
-            backfiller.sessionRowsPersisted, backfiller.sessionMotionRows, backfiller.sessionNights,
+            backfiller.sessionRowsPersisted, backfiller.sessionMotionRows, backfiller.sessionSkinTempRows,
+            backfiller.sessionNights,
         )?.let { log(it) }
 
         // #547 RE-POLLUTION: this session's ingest gate dropped bad-clock records, so the strap has a
