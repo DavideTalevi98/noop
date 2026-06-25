@@ -364,6 +364,20 @@ object NoopPrefs {
         of(context).edit().putStringSet(KEY_SMART_ALARM_OVERRIDES, clean).apply()
     }
 
+    /** #749: device addresses that have reached a GENUINE encrypted bond at least once on this phone. Lets
+     *  a later 5/MG bond refusal report bondedBefore=yes (a bond that WENT stale — clearable via a Bluetooth
+     *  reset) vs bondedBefore=no (never accepted NOOP — likely held by the official WHOOP app). Twin of the
+     *  macOS `everBondedPeripheralUUIDs`. */
+    const val KEY_EVER_BONDED = "noop.everBondedAddresses"
+
+    fun hasEverBonded(context: Context, address: String): Boolean =
+        of(context).getStringSet(KEY_EVER_BONDED, emptySet())?.contains(address) ?: false
+
+    fun recordEverBonded(context: Context, address: String) {
+        val set = of(context).getStringSet(KEY_EVER_BONDED, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (set.add(address)) of(context).edit().putStringSet(KEY_EVER_BONDED, set).apply()
+    }
+
     /** HR-zone haptic coaching: buzz the strap on entering the top zone (ease off) and — when the
      *  recovery buzz is on — on dropping back to Zone 1. Zone-based off the profile's HR-max; mirrors
      *  macOS. Coaching default off; recovery buzz default on (matches macOS's always-both behaviour).

@@ -514,6 +514,19 @@ public final class BLEManager: NSObject, ObservableObject {
     /// (so it accumulates across the reconnect loop). Distinct from `pinnedBondRefusals`, which is gated to
     /// the multi-WHOOP pinned peripheral and drives the #52 stale-pin handoff.
     private var bondRefusalStreak = 0
+    /// #749: wall time the CLIENT_HELLO confirmed-write was issued, so a 5/MG bond refusal can report how
+    /// long the strap/OS took to reject it. An IMMEDIATE refusal means the OS never attempted a fresh
+    /// just-works pairing (a stale/absent bond it reused); a DELAYED one means pairing WAS attempted and the
+    /// strap rejected it (it's bonded to the official WHOOP app). nil until the write is issued.
+    private var clientHelloWriteAt: Date?
+    /// #749: did live HR stream this connection (the 5/MG standard-profile feed that works WITHOUT a bond)?
+    /// Lets the disconnect summary say "looked connected (HR streamed) but never bonded". Reset on connect.
+    private var whoop5LiveHRThisSession = false
+    /// #749: UserDefaults key for the set of peripheral UUIDs that have reached a GENUINE encrypted bond at
+    /// least once on THIS Mac. Lets a later refusal report bondedBefore=yes (a bond that WENT stale —
+    /// clearable via a Bluetooth reset) vs bondedBefore=no (never accepted NOOP — likely held by the WHOOP
+    /// app), the cleanest stale-vs-never root-cause split a single strap log can carry.
+    private static let everBondedUUIDsKey = "everBondedPeripheralUUIDs"
     /// Multi-WHOOP stale-pin recovery (#52). Consecutive "Encryption/Authentication is insufficient" bond
     /// refusals on the CURRENTLY PINNED peripheral. A stale registry pin (pointing at a strap that bonds to
     /// the official app / isn't really here) makes `connect()` drop the strap that DOES bond and loop
@@ -864,6 +877,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// the ordinary pre-bond `didConnect` publish (where `encryptedBond` is still false).
     private func noteGenuineBond(of p: CBPeripheral) {
         lastBondedPeripheralUUID = p.identifier
+        recordEverBonded(p.identifier)   // #749: persist across sessions for the stale-vs-never refusal split
         pinnedBondRefusals = 0
         if readoptingTo == p.identifier {
             readoptingTo = nil
@@ -2187,6 +2201,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         cancelScanFallback()
         failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
+        whoop5LiveHRThisSession = false   // #749: fresh connection re-arms the disconnect-summary HR flag
         restoredPeripheral = nil
         preparePeripheral(peripheral)
         // Clear the per-connection bond BEFORE publishing the connected uuid below. SourceCoordinator's #52
@@ -2265,6 +2280,12 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             }
         }
         bondedAt = nil   // cleared after the bond-loop detector above read it (#617)
+        // #749: one-line session epitaph when a 5/MG drops having NEVER reached a genuine bond despite
+        // trying — consolidates the buried per-refusal lines into the at-a-glance conclusion (the refusal
+        // forensics sit early, then hundreds of HR lines bury them). Read before didBond/biometrics reset.
+        if selectedModel.deviceFamily == .whoop5, !didBond, bondRefusalStreak > 0 {
+            log("WHOOP 5/MG session ended without bonding — \(bondRefusalStreak) CLIENT_HELLO refusal(s) so far, bondedBefore=\(hasEverBonded(peripheral.identifier) ? "yes" : "no"), liveHR=\(whoop5LiveHRThisSession ? "streamed" : "none"). Sleep & history never synced this session (#749).")
+        }
         state.connected = false
         state.encryptedBond = false   // cleared with didBond; next session must re-prove the bond (#69)
         state.charging = nil          // a stale charging flag must not outlive the link
@@ -2476,6 +2497,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     // "Finishing the secure pairing handshake…".
                     log("WHOOP 5/MG: writing CLIENT_HELLO to fd4b0002 with response (to trigger bonding, experimental).")
                     state.pairingHint = nil   // fresh attempt; clear any stale pairing-mode guidance
+                    clientHelloWriteAt = Date()   // #749: time a refusal/ack against this write
                     peripheral.writeValue(Data(hello), for: c, type: .withResponse)
                 }
                 // The realtime-HR stream is armed POST-bond (in didWriteValueFor / startRealtime) with
@@ -2510,12 +2532,49 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
     }
 
+    /// #749: persist that this peripheral has reached a genuine encrypted bond at least once, so a future
+    /// refusal can distinguish a bond that went stale from one that never happened. (Distinct from the
+    /// in-memory `lastBondedPeripheralUUID`, which only knows about THIS session — the gap #78 hit.)
+    private func recordEverBonded(_ id: UUID) {
+        var set = Set(UserDefaults.standard.stringArray(forKey: Self.everBondedUUIDsKey) ?? [])
+        if set.insert(id.uuidString).inserted {
+            UserDefaults.standard.set(Array(set), forKey: Self.everBondedUUIDsKey)
+        }
+    }
+    /// #749: has this peripheral ever bonded on this Mac (across sessions)? See `recordEverBonded`.
+    private func hasEverBonded(_ id: UUID) -> Bool {
+        (UserDefaults.standard.stringArray(forKey: Self.everBondedUUIDsKey) ?? []).contains(id.uuidString)
+    }
+
+    /// #749: a precise, log-safe label for a confirmed-write failure so a 5/MG bond refusal in a strap log
+    /// reveals WHICH ATT failure it was — insufficientEncryption (the OS reused a stale bond and never
+    /// re-encrypted) vs insufficientAuthentication (encrypted, but not bonded to the level the strap
+    /// demands). The localizedDescription conflated these; the raw ATT code distinguishes the refusal modes.
+    /// Falls back to the NSError domain/code if it isn't a CBATTError.
+    private func attFailureLabel(_ error: Error) -> String {
+        let code = (error as NSError).code
+        let name: String
+        switch (error as? CBATTError)?.code {
+        case .insufficientAuthentication:    name = "insufficientAuthentication"
+        case .insufficientEncryption:        name = "insufficientEncryption"
+        case .insufficientAuthorization:     name = "insufficientAuthorization"
+        case .insufficientEncryptionKeySize: name = "insufficientEncryptionKeySize"
+        case .some(let c):                   name = "att\(c.rawValue)"
+        case nil:                            name = (error as NSError).domain
+        }
+        return "\(name) (0x\(String(code, radix: 16)))"
+    }
+
     /// Confirmed-write completion = bonding succeeded (no error).
     public func peripheral(_ peripheral: CBPeripheral,
                            didWriteValueFor characteristic: CBCharacteristic,
                            error: Error?) {
         if let error = error {
-            log("Confirmed write failed: \(error.localizedDescription)")
+            // #749: name the characteristic so a failure on a POST-"bonded" puffin command isn't misread as
+            // a CLIENT_HELLO bond refusal (the live-HR shortcut flips state.bonded true with no real bond).
+            let failedChar = characteristic.uuid == BLEManager.whoop5CmdWriteChar
+                ? "CLIENT_HELLO (fd4b0002)" : characteristic.uuid.uuidString
+            log("Confirmed write failed: \(error.localizedDescription) [char=\(failedChar)]")
             let insufficient = error.localizedDescription.lowercased().contains("encryption")
                 || error.localizedDescription.lowercased().contains("authentication")
             // WHOOP 5/MG first connect: CoreBluetooth won't start a fresh just-works bond against a strap
@@ -2524,6 +2583,16 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             // actionable pairing-mode guidance instead of failing silently (issue #17).
             if selectedModel.deviceFamily == .whoop5, !didBond, insufficient {
                 bondRefusalStreak += 1
+                // #749 forensics: capture WHICH ATT failure, how fast it came, and whether live HR is
+                // already flowing — so a strap log reveals the refusal MODE without the raw capture. An
+                // immediate insufficientEncryption ⇒ the OS reused a stale/absent bond (never re-paired); a
+                // delayed insufficientAuthentication ⇒ pairing was attempted and the strap (bonded to the
+                // WHOOP app) rejected it. liveHR=yes confirms the link is up, just unencrypted for puffin.
+                let sinceHello = clientHelloWriteAt.map { Int(Date().timeIntervalSince($0) * 1000) }
+                log("WHOOP 5/MG bond refusal #\(bondRefusalStreak): \(attFailureLabel(error))"
+                    + (sinceHello.map { ", \($0)ms after CLIENT_HELLO" } ?? "")
+                    + ", liveHR=\(state.heartRate != nil ? "yes" : "no")"
+                    + ", bondedBefore=\(hasEverBonded(peripheral.identifier) ? "yes" : "no")")
                 // #78: surface the pairing-mode guidance once refusals are PERSISTENT — the strap is
                 // genuinely refusing the encrypted bond (held by the official WHOOP app, or iOS holds a
                 // stale/half pairing it can't re-encrypt, e.g. after a "Restored CONNECTED peripheral").
@@ -2533,7 +2602,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 // for users whose strap had bonded in a PRIOR session but won't now — exactly #78.)
                 if bondRefusalStreak >= 2 {
                     state.pairingHint = "NOOP can see your strap but it's refusing to pair — it's likely still bonded to the official WHOOP app, or your phone is holding an old pairing. To fix it: (1) fully close the WHOOP app, (2) on a 5.0/MG, tap the band repeatedly until the LEDs flash blue (pairing mode), (3) if your strap is listed under iPhone Settings → Bluetooth, tap it and choose Forget This Device, then reconnect in NOOP."
-                    log("WHOOP 5/MG: bond refused \(bondRefusalStreak)× with no successful bond — the strap is refusing the encrypted link (WHOOP app holds it, or a stale iOS pairing). Surfacing pairing-mode + forget-device guidance (#78).")
+                    log("WHOOP 5/MG: bond refused \(bondRefusalStreak)× with no successful bond — the strap is refusing the encrypted link (WHOOP app holds it, or a stale iOS pairing). Surfacing pairing-mode + forget-device guidance (#78). Sleep & history stay stuck until it bonds — they ride the encrypted puffin session; live HR doesn't, so the strap still looks connected (#749).")
                 } else {
                     log("WHOOP 5/MG: bond write refused (insufficient) — retrying once; will surface pairing-mode guidance if it persists (#78).")
                 }
@@ -2767,6 +2836,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         switch characteristic.uuid {
         case BLEManager.heartRateChar:
             parseStandardHR(bytes)
+            if selectedModel.deviceFamily == .whoop5 { whoop5LiveHRThisSession = true }   // #749: for the disconnect summary
             // EXPERIMENTAL WHOOP 5.0/MG: there is no confirmed-write bond for a 5/MG strap, so once
             // live HR actually streams over the standard profile we treat the link as established —
             // otherwise the UI sits on "Connecting…" forever even though data is flowing (issue #8).

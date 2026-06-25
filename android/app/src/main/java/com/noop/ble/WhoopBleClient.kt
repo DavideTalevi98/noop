@@ -2226,10 +2226,26 @@ class WhoopBleClient(
     @Volatile
     private var bondRefusalStreak = 0
 
+    /** #749: System.currentTimeMillis() when the CLIENT_HELLO write was issued, so a bond refusal can
+     *  report how long the strap/OS took to reject it — an IMMEDIATE refusal means no fresh pairing was
+     *  attempted (a stale/absent bond), a DELAYED one means pairing was tried and the strap (bonded to the
+     *  WHOOP app) rejected it. 0 until written. Twin of macOS clientHelloWriteAt. */
+    @Volatile
+    private var clientHelloWriteAtMs = 0L
+
+    /** #749: did live HR stream this connection (the 5/MG standard-profile feed that works WITHOUT a bond)?
+     *  Lets the disconnect summary say "looked connected (HR streamed) but never bonded". Reset on connect.
+     *  Twin of macOS whoop5LiveHRThisSession. */
+    @Volatile
+    private var whoop5LiveHRThisSession = false
+
     /** A genuine bond this run: [address] is a live working strap (re-adopt target), and a bond proves no
      *  stale pin is wedging us — so clear the refusal streak. Twin of iOS `noteGenuineBond`. */
     private fun noteGenuineBond(address: String?) {
-        if (address != null) lastBondedAddress = address
+        if (address != null) {
+            lastBondedAddress = address
+            NoopPrefs.recordEverBonded(context, address)   // #749: persist for the stale-vs-never refusal split
+        }
         pinnedBondRefusals = 0
     }
 
@@ -2285,6 +2301,16 @@ class WhoopBleClient(
     private fun isInsufficientAuthStatus(status: Int): Boolean =
         status == GATT_INSUFFICIENT_AUTHENTICATION || status == GATT_INSUFFICIENT_ENCRYPTION
 
+    /** #749: human-readable GATT status for a confirmed-write failure, so a 5/MG bond refusal in a strap
+     *  log names the refusal mode — insufficientEncryption (the stack reused a stale/absent bond, no fresh
+     *  pairing) vs insufficientAuthentication (paired, but not bonded to the level the strap demands).
+     *  Twin of macOS attFailureLabel. */
+    private fun gattStatusName(status: Int): String = when (status) {
+        GATT_INSUFFICIENT_AUTHENTICATION -> "insufficientAuthentication"
+        GATT_INSUFFICIENT_ENCRYPTION -> "insufficientEncryption"
+        else -> "status$status"
+    }
+
     /** Count a WHOOP 5/MG encrypted-bond refusal toward the pairing-hint streak (#78) and, once it
      *  reaches [BOND_REFUSAL_HINT_THRESHOLD] with no genuine bond yet this session, publish concrete
      *  pairing-mode guidance. WHOOP 4 always reaches a genuine bond, so this is 5/MG-only (matching the
@@ -2301,7 +2327,7 @@ class WhoopBleClient(
             // STATE_CONNECTED clears statusNote on each reconnect, so a once-only set would leave the Live
             // status blank after a reconnect — re-asserting keeps the already-rendered surface in sync.
             if (_state.value.pairingHint == null) {
-                log("WHOOP 5/MG: encrypted bond refused $bondRefusalStreak times — surfacing pairing guidance (#78)")
+                log("WHOOP 5/MG: encrypted bond refused $bondRefusalStreak times — surfacing pairing guidance (#78). Sleep & history stay stuck until it bonds — they ride the encrypted puffin session; live HR doesn't, so the strap still looks connected (#749).")
             }
             _state.value = _state.value.copy(pairingHint = PAIRING_HINT_TEXT, statusNote = PAIRING_HINT_TEXT)
         }
@@ -2400,6 +2426,7 @@ class WhoopBleClient(
                 BluetoothProfile.STATE_CONNECTED -> {
                     // Port of didConnect: mark connected, negotiate a larger ATT MTU, THEN discover.
                     handler.removeCallbacks(scanTimeoutRunnable)
+                    whoop5LiveHRThisSession = false   // #749: fresh connection re-arms the disconnect-summary HR flag
                     // A successful connect clears the reconnect backoff — the next involuntary drop
                     // starts the 3,6,12…s schedule afresh (iOS didConnect: failedConnectAttempts=0, #48).
                     resetReconnectBackoff()
@@ -2567,7 +2594,20 @@ class WhoopBleClient(
         ) {
             // Port of didWriteValueFor: a CONFIRMED-write completion (no error) == bonding succeeded.
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                log("Confirmed write failed: status=$status")
+                // #749 forensics: name the failure, time it against the CLIENT_HELLO write, and note whether
+                // live HR is already flowing — so a strap log reveals the refusal MODE (stale OS bond vs
+                // strap bonded to the WHOOP app) without the raw capture. Twin of the macOS BLEManager log.
+                val sinceHello = if (clientHelloWriteAtMs > 0L) System.currentTimeMillis() - clientHelloWriteAtMs else -1L
+                val bondedBefore = if (NoopPrefs.hasEverBonded(context, g.device.address)) "yes" else "no"
+                // #749: name the characteristic so a failure on a POST-"bonded" puffin command isn't misread
+                // as a CLIENT_HELLO bond refusal (the live-HR shortcut flips bonded true with no real bond).
+                val failedChar = if (characteristic.uuid == WHOOP5_CMD_WRITE_CHAR) "CLIENT_HELLO (fd4b0002)" else characteristic.uuid.toString()
+                log(
+                    "Confirmed write failed: ${gattStatusName(status)} (status=$status)" +
+                        (if (sinceHello >= 0L) ", ${sinceHello}ms after CLIENT_HELLO" else "") +
+                        ", liveHR=${if (_state.value.heartRate != null) "yes" else "no"}" +
+                        ", bondedBefore=$bondedBefore, char=$failedChar",
+                )
                 // Multi-WHOOP stale-pin recovery (#52). A status of INSUFFICIENT_AUTHENTICATION (5) /
                 // INSUFFICIENT_ENCRYPTION (15) on the bond write == the strap refused the encrypted bond
                 // (the Android twin of the iOS "Encryption/Authentication is insufficient" error). When a
@@ -3025,6 +3065,7 @@ class WhoopBleClient(
         // HR: accept only physiologically plausible values; reject 0/garbage (off-wrist).
         if (hr in 30..220) {
             _state.value = _state.value.copy(heartRate = hr)
+            if (connectedFamily != DeviceFamily.WHOOP4) whoop5LiveHRThisSession = true   // #749: for the disconnect summary
             // EXPERIMENTAL WHOOP 5.0/MG: there is no confirmed-write bond for a 5/MG strap, so once
             // live HR actually streams over the standard profile we treat the link as established —
             // otherwise the UI sits on "Connecting…" forever even though data is flowing (issue #8).
@@ -3470,6 +3511,7 @@ class WhoopBleClient(
         // unacknowledged write left it bond-less and silent — CLIENT_HELLO written, then nothing (#17).
         // Hold the slot until the ACK; the opt-in puffin probe now fires post-bond (onCharacteristicWrite).
         log("WHOOP 5/MG: writing CLIENT_HELLO to fd4b0002 with response (to trigger bonding, experimental).")
+        clientHelloWriteAtMs = System.currentTimeMillis()   // #749: time a refusal/ack against this write
         writeInFlight = true
         val ok = safeGatt("writeClientHello") {
             ops.writeCharacteristicCompat(ch, hello, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
@@ -4120,6 +4162,15 @@ class WhoopBleClient(
         // strap can still be found (and "No WHOOP strap found" guidance still appears). (#78 fork)
         val staleDirectBond = bondedDirectAttempt && !didBond
         bondedDirectAttempt = false
+
+        // #749: one-line session epitaph when a 5/MG drops having NEVER reached a genuine bond despite
+        // trying — consolidates the buried per-refusal lines into the at-a-glance conclusion. Read here,
+        // before reset() wipes didBond and the address is cleared. Twin of macOS didDisconnectPeripheral.
+        if (connectedFamily == DeviceFamily.WHOOP5 && !didBond && bondRefusalStreak > 0) {
+            val addr = _connectedPeripheralAddress.value ?: lastDeviceAddress
+            val bondedBefore = if (addr != null && NoopPrefs.hasEverBonded(context, addr)) "yes" else "no"
+            log("WHOOP 5/MG session ended without bonding — $bondRefusalStreak CLIENT_HELLO refusal(s) so far, bondedBefore=$bondedBefore, liveHR=${if (whoop5LiveHRThisSession) "streamed" else "none"}. Sleep & history never synced this session (#749).")
+        }
 
         // #617 bond-loop detection: read the bond timestamp before it's cleared below. The bond-loop
         // tell is a CONNECTION TIMEOUT that lands within seconds of a genuine bond — bond -> drop -> rescan
