@@ -181,7 +181,7 @@ struct RootView: View {
 
     @ViewBuilder private var detail: some View {
         switch selection ?? .today {
-        case .today: TodayView()
+        case .today: todayDetail
         case .intelligence: IntelligenceView()
         case .insightsHub: InsightsHubView()
         case .coach: CoachView()
@@ -209,6 +209,20 @@ struct RootView: View {
         case .settings: SettingsView()
         case .support: SupportView()
         }
+    }
+
+    // Today's "Your Cards" rows push Stress/Health/Hydration detail pages via NavigationLink. On macOS
+    // the detail column has no enclosing NavigationStack of its own, so those pushes had no Back chrome
+    // and switching sidebar items hung (#753 Bug 2). Give the Today pane its own NavigationStack the
+    // same way MetricExplorerView wraps itself because "Explore is a standalone detail pane, so it owns
+    // its NavigationStack". iOS already wraps each tab in a NavigationStack via RootTabView, so this is
+    // macOS-only and leaves iOS untouched (TodayView's `.toolbar` stays on its own view body either way).
+    @ViewBuilder private var todayDetail: some View {
+        #if os(macOS)
+        NavigationStack { TodayView() }
+        #else
+        TodayView()
+        #endif
     }
 }
 
