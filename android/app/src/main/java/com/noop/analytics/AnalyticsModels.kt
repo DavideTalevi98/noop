@@ -266,6 +266,9 @@ data class DayResult(
      * in a second pass. APPROXIMATE. (PR #85)
      */
     val nightlySkinTempC: Double? = null,
+    /** #727: per-gate tally behind [nightlySkinTempC], so the caller can log WHERE skin temp died
+     *  (banked → worn → in-session → plausible → mean). Diagnostics only; null for non-skin days. */
+    val skinTempFunnel: SkinTempFunnel? = null,
     /** Per-score certainty tier for Charge (recovery). Mirrors Swift. */
     val chargeConfidence: ScoreConfidence = ScoreConfidence.CALIBRATING,
     /** Per-score certainty tier for Effort (strain). Mirrors Swift. */
@@ -280,4 +283,19 @@ data class DayResult(
      * zero series. Mirrors Swift `DayResult.sessionMotionByStart`. (H8)
      */
     val sessionMotionByStart: Map<Long, List<Double>> = emptyMap(),
+)
+
+/**
+ * #727: per-gate tally of the nightly skin-temp derivation, so a strap log can show WHERE the signal
+ * died — banked [raw] → [worn] (concurrent worn HR) → [inSession] (inside a detected sleep span) →
+ * [plausible] (28–42 °C, the count that feeds the [minSamples] mean gate). [mean] is null unless
+ * `plausible >= minSamples`. Diagnostics only; carries no scoring weight. Mirrors Swift `SkinTempFunnel`.
+ */
+data class SkinTempFunnel(
+    val mean: Double?,
+    val raw: Int,
+    val worn: Int,
+    val inSession: Int,
+    val plausible: Int,
+    val minSamples: Int,
 )

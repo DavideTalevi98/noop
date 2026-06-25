@@ -131,6 +131,20 @@ final class IntelligenceEngine: ObservableObject {
             + "(floor = WHOOP-style lowest-sustained = NOOP RHR; mean = sleeping-HR-app number)"
     }
 
+    /// #727: the skin-temp derivation funnel as one privacy-safe line — where the nightly signal died
+    /// (banked raw → worn-HR concurrent → in detected sleep → 28–42 °C plausible → ≥min mean → baseline
+    /// dev). Counts only, no PII. Pure so it's unit-tested directly and is the SAME line `analyzeRecent`
+    /// ships. `String(format:)` uses the POSIX locale (decimal point), matching the Android Locale.US.
+    /// Byte-identical to the Android `skinTempFunnelLogLine`.
+    nonisolated static func skinTempFunnelLogLine(day: String, funnel: AnalyticsEngine.SkinTempFunnel,
+                                                  dev: Double?, baselineNValid: Int) -> String {
+        let meanLog = funnel.mean.map { String(format: "%.1f°C", $0) } ?? "nil"
+        let devLog = dev.map { String(format: "%+.2f", $0) } ?? "nil"
+        return "skintemp day=\(day) raw=\(funnel.raw) worn=\(funnel.worn) inSession=\(funnel.inSession) "
+            + "plausible=\(funnel.plausible)/\(funnel.minSamples) mean=\(meanLog) "
+            + "baseline=\(baselineNValid)/\(Baselines.minNightsSeed) dev=\(devLog)"
+    }
+
     /// The Saturday on-or-before a "yyyy-MM-dd" local-day string — the weekly key Fitness Age writes to.
     static func saturdayKey(onOrBefore dayStr: String) -> String {
         var cal = Calendar(identifier: .gregorian); cal.timeZone = .current
@@ -285,6 +299,7 @@ final class IntelligenceEngine: ObservableObject {
         // seed resp/skin-temp baselines the same way avgHrv seeds the HRV baseline.
         var nightlyRespByDay: [String: Double?] = [:]
         var nightlySkinByDay: [String: Double?] = [:]
+        var skinFunnelByDay: [String: AnalyticsEngine.SkinTempFunnel] = [:]   // #727 diagnostics
 
         // Device-registry snapshot for per-day owner resolution (invariant I2 — a day's scores come from
         // exactly ONE source). Read once before the loop: the paired-device list + the active id are
@@ -453,6 +468,7 @@ final class IntelligenceEngine: ObservableObject {
             nightlyRhrByDay[res.daily.day] = res.daily.restingHr.map(Double.init)
             nightlyRespByDay[res.daily.day] = res.daily.respRateBpm
             nightlySkinByDay[res.daily.day] = res.nightlySkinTempC
+            if let f = res.skinTempFunnel { skinFunnelByDay[res.daily.day] = f }   // #727 diagnostics
             if let line = scan.rhrLine { diagnosticSink?(line) }
             scoredNights.append((daily: res.daily, strain: res.strain, cachedSleep: res.cachedSleep,
                                  workouts: res.workouts, nightlySkin: res.nightlySkinTempC,
@@ -580,6 +596,13 @@ final class IntelligenceEngine: ObservableObject {
             let tsmLog = daily.totalSleepMin.map { String(Int($0.rounded())) } ?? "nil"
             diagnosticSink?("sleep day=\(daily.day) totalSleepMin=\(tsmLog) "
                             + "matched=\(night.cachedSleep.count) source=\(source.logToken)")
+            // #727: the skin-temp derivation funnel — where the nightly signal died (banked raw → worn-HR
+            // concurrent → in detected sleep → 28–42°C plausible → ≥min mean → baseline-relative dev). One
+            // line settles "skin temp never shows" with data instead of guesswork (mirrors `sleep day=`).
+            if let f = skinFunnelByDay[daily.day] {
+                diagnosticSink?(Self.skinTempFunnelLogLine(
+                    day: daily.day, funnel: f, dev: skinDev, baselineNValid: baselines2.skinTemp?.nValid ?? 0))
+            }
             dailies.append(daily.with(recovery: recovery, skinTempDevC: skinDev))
             if let rest = AnalyticsEngine.Rest.composite(daily: daily) {
                 restPoints.append(MetricPoint(day: daily.day, key: "sleep_performance", value: rest))

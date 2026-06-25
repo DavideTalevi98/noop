@@ -305,7 +305,8 @@ object AnalyticsEngine {
         // mean is harvested; IntelligenceEngine seeds the baseline from those means and re-derives the
         // deviation in pass 2 (mirrors avgHrv→recovery). Computed BEFORE Charge so the Charge skin-temp
         // penalty can read it. APPROXIMATE. (PR #85)
-        val nightlySkinTempC = wornNightlySkinTempC(matched, hr, skinTemp)
+        val skinFunnel = wornNightlySkinTempC(matched, hr, skinTemp)
+        val nightlySkinTempC = skinFunnel.mean
         val skinTempDevC: Double? = nightlySkinTempC?.let { v ->
             baselines.skinTemp?.takeIf { it.usable }?.let { round2(Baselines.deviation(v, it).delta) }
         }
@@ -488,6 +489,7 @@ object AnalyticsEngine {
             strain = strain,
             rest = rest,
             nightlySkinTempC = nightlySkinTempC,
+            skinTempFunnel = skinFunnel,
             chargeConfidence = chargeConfidence,
             effortConfidence = effortConfidence,
             restConfidence = restConfidence,
@@ -515,21 +517,32 @@ object AnalyticsEngine {
         hr: List<HrSample>,
         skinTemp: List<SkinTempSample>,
         minSamples: Int = MIN_SKIN_TEMP_SAMPLES_INLINE,
-    ): Double? {
-        if (sessions.isEmpty() || skinTemp.isEmpty()) return null
+    ): SkinTempFunnel {
+        // #727: tally each gate so a strap log can show WHERE the nightly skin-temp signal died, not just
+        // that it ended up null. Behaviour is unchanged — `mean` is exactly the old return value.
+        if (sessions.isEmpty() || skinTemp.isEmpty()) {
+            return SkinTempFunnel(null, raw = skinTemp.size, worn = 0, inSession = 0, plausible = 0, minSamples = minSamples)
+        }
         val wornSeconds = HashSet<Long>(hr.size)
         for (h in hr) if (h.bpm in 30..220) wornSeconds.add(h.ts)
         var sum = 0.0
         var n = 0
+        var worn = 0
+        var inSession = 0
         for (t in skinTemp) {
             if (t.ts !in wornSeconds) continue
+            worn++
             if (sessions.none { t.ts in it.start..it.end }) continue
+            inSession++
             val c = t.raw / 100.0
             if (c < SKIN_TEMP_MIN_C || c > SKIN_TEMP_MAX_C) continue
             sum += c
             n++
         }
-        return if (n >= minSamples) sum / n else null
+        return SkinTempFunnel(
+            mean = if (n >= minSamples) sum / n else null,
+            raw = skinTemp.size, worn = worn, inSession = inSession, plausible = n, minSamples = minSamples,
+        )
     }
 
     /** Plausible worn skin-temperature range (°C). Off-wrist/charging samples drift to ambient and are

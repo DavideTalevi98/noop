@@ -41,7 +41,7 @@ class SkinTempAnalyticsTest {
         val sess = listOf(session(start, 600))
         val hrs = (0 until 600).map { hr(start + it) }
         val temps = (0 until 600).map { skin(start + it, 3400) } // 34.00 °C
-        val mean = AnalyticsEngine.wornNightlySkinTempC(sess, hrs, temps)
+        val mean = AnalyticsEngine.wornNightlySkinTempC(sess, hrs, temps).mean
         assertEquals(34.0, mean!!, 1e-9)
     }
 
@@ -51,7 +51,7 @@ class SkinTempAnalyticsTest {
         val start = 2_000_000L
         val sess = listOf(session(start, 600))
         val temps = (0 until 600).map { skin(start + it, 3400) }
-        assertNull(AnalyticsEngine.wornNightlySkinTempC(sess, emptyList(), temps))
+        assertNull(AnalyticsEngine.wornNightlySkinTempC(sess, emptyList(), temps).mean)
     }
 
     @Test
@@ -65,7 +65,7 @@ class SkinTempAnalyticsTest {
         val day = night + 10_000
         val dayHr = (0 until 600).map { hr(day + it) }
         val dayTemp = (0 until 600).map { skin(day + it, 3600) } // 36 °C, worn-range, but daytime
-        val mean = AnalyticsEngine.wornNightlySkinTempC(sess, inBedHr + dayHr, inBedTemp + dayTemp)
+        val mean = AnalyticsEngine.wornNightlySkinTempC(sess, inBedHr + dayHr, inBedTemp + dayTemp).mean
         assertEquals(34.0, mean!!, 1e-9)
     }
 
@@ -77,7 +77,7 @@ class SkinTempAnalyticsTest {
         val sess = listOf(session(start, 600))
         val hrs = (0 until 600).map { hr(start + it) }
         val temps = (0 until 600).map { skin(start + it, 2200) } // 22 °C ambient
-        assertNull(AnalyticsEngine.wornNightlySkinTempC(sess, hrs, temps))
+        assertNull(AnalyticsEngine.wornNightlySkinTempC(sess, hrs, temps).mean)
     }
 
     @Test
@@ -86,12 +86,53 @@ class SkinTempAnalyticsTest {
         val sess = listOf(session(start, 100))
         val hrs = (0 until 100).map { hr(start + it) }
         val temps = (0 until 100).map { skin(start + it, 3400) } // only 100 < MIN_SKIN_TEMP_SAMPLES
-        assertNull(AnalyticsEngine.wornNightlySkinTempC(sess, hrs, temps))
+        assertNull(AnalyticsEngine.wornNightlySkinTempC(sess, hrs, temps).mean)
     }
 
     @Test
     fun emptyInputsAreNull() {
-        assertNull(AnalyticsEngine.wornNightlySkinTempC(emptyList(), emptyList(), emptyList()))
+        assertNull(AnalyticsEngine.wornNightlySkinTempC(emptyList(), emptyList(), emptyList()).mean)
+    }
+
+    // #727: the funnel counts must expose which gate dropped the samples. 600 in-bed samples all have
+    // worn HR; 200 of them drift to on-charger ambient (22 °C, below the 28 °C floor), so worn=inSession=600
+    // but only plausible=400 feed the mean — the exact breakdown a strap log needs. Mirrors the Swift test.
+    @Test
+    fun funnelCountsExposeEachGate() {
+        val start = 6_000_000L
+        val sess = listOf(session(start, 600))
+        val hrs = (0 until 600).map { hr(start + it) }
+        val temps = (0 until 600).map { skin(start + it, if (it < 400) 3400 else 2200) } // 400 worn, 200 ambient
+        val f = AnalyticsEngine.wornNightlySkinTempC(sess, hrs, temps)
+        assertEquals(600, f.raw)
+        assertEquals(600, f.worn)
+        assertEquals(600, f.inSession)
+        assertEquals(400, f.plausible)
+        assertEquals(34.0, f.mean!!, 1e-9)
+    }
+
+    // ── skinTempFunnelLogLine (the diagnostic line, pure + tested like rhrFloorMeanLogLine) ───
+    // #727: pinning the EXACT string locks the format AND the Swift/Android parity (the Swift
+    // skinTempFunnelLogLine is byte-identical; StrandAnalytics can't compile on Linux CI, so this is
+    // the verifiable half of that guarantee).
+
+    @Test
+    fun skinTempFunnelLogLine_healthyNight() {
+        val f = SkinTempFunnel(mean = 30.6, raw = 412, worn = 380, inSession = 360, plausible = 355, minSamples = 300)
+        assertEquals(
+            "skintemp day=2026-06-24 raw=412 worn=380 inSession=360 plausible=355/300 " +
+                "mean=30.6°C baseline=4/4 dev=+0.30",
+            IntelligenceEngine.skinTempFunnelLogLine("2026-06-24", f, 0.30, 4),
+        )
+    }
+
+    @Test
+    fun skinTempFunnelLogLine_strapBankedNothing_isNilNotZero() {
+        val f = SkinTempFunnel(mean = null, raw = 0, worn = 0, inSession = 0, plausible = 0, minSamples = 300)
+        assertEquals(
+            "skintemp day=2026-06-22 raw=0 worn=0 inSession=0 plausible=0/300 mean=nil baseline=2/4 dev=nil",
+            IntelligenceEngine.skinTempFunnelLogLine("2026-06-22", f, null, 2),
+        )
     }
 
     // ── seed → deviation (skin_temp baseline) ───────────────────────────────

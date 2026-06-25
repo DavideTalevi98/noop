@@ -37,7 +37,7 @@ final class SkinTempAnalyticsTests: XCTestCase {
         let sess = [session(start: start, durSec: 600)]
         let hrs = (0..<600).map { hr(start + $0) }
         let temps = (0..<600).map { skin(start + $0, rawX100: 3400) }  // 34.00 °C
-        let mean = try XCTUnwrap(AnalyticsEngine.wornNightlySkinTempC(sess, hr: hrs, skinTemp: temps))
+        let mean = try XCTUnwrap(AnalyticsEngine.wornNightlySkinTempC(sess, hr: hrs, skinTemp: temps).mean)
         XCTAssertEqual(mean, 34.0, accuracy: 1e-9)
     }
 
@@ -46,7 +46,7 @@ final class SkinTempAnalyticsTests: XCTestCase {
         let start = 2_000_000
         let sess = [session(start: start, durSec: 600)]
         let temps = (0..<600).map { skin(start + $0, rawX100: 3400) }
-        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC(sess, hr: [], skinTemp: temps))
+        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC(sess, hr: [], skinTemp: temps).mean)
     }
 
     func testExcludesDaytimeSamplesOutsideTheSleepSession() throws {
@@ -60,7 +60,7 @@ final class SkinTempAnalyticsTests: XCTestCase {
         let dayHr = (0..<600).map { hr(day + $0) }
         let dayTemp = (0..<600).map { skin(day + $0, rawX100: 3600) }  // 36 °C, worn-range, daytime
         let mean = try XCTUnwrap(AnalyticsEngine.wornNightlySkinTempC(
-            sess, hr: inBedHr + dayHr, skinTemp: inBedTemp + dayTemp))
+            sess, hr: inBedHr + dayHr, skinTemp: inBedTemp + dayTemp).mean)
         XCTAssertEqual(mean, 34.0, accuracy: 1e-9)
     }
 
@@ -72,7 +72,7 @@ final class SkinTempAnalyticsTests: XCTestCase {
         let sess = [session(start: start, durSec: 600)]
         let hrs = (0..<600).map { hr(start + $0) }
         let temps = (0..<600).map { skin(start + $0, rawX100: 2200) }  // 22 °C ambient
-        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC(sess, hr: hrs, skinTemp: temps))
+        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC(sess, hr: hrs, skinTemp: temps).mean)
     }
 
     func testBelowMinSamplesIsNil() {
@@ -80,11 +80,27 @@ final class SkinTempAnalyticsTests: XCTestCase {
         let sess = [session(start: start, durSec: 100)]
         let hrs = (0..<100).map { hr(start + $0) }
         let temps = (0..<100).map { skin(start + $0, rawX100: 3400) }  // 100 < minSkinTempSamples
-        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC(sess, hr: hrs, skinTemp: temps))
+        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC(sess, hr: hrs, skinTemp: temps).mean)
     }
 
     func testEmptyInputsAreNil() {
-        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC([], hr: [], skinTemp: []))
+        XCTAssertNil(AnalyticsEngine.wornNightlySkinTempC([], hr: [], skinTemp: []).mean)
+    }
+
+    // #727: the funnel counts must expose which gate dropped the samples. 600 in-bed samples all have
+    // worn HR; 200 of them drift to on-charger ambient (22 °C, below the 28 °C floor), so worn=inSession=600
+    // but only plausible=400 feed the mean — the exact breakdown a strap log needs.
+    func testFunnelCountsExposeEachGate() throws {
+        let start = 6_000_000
+        let sess = [session(start: start, durSec: 600)]
+        let hrs = (0..<600).map { hr(start + $0) }
+        let temps = (0..<600).map { skin(start + $0, rawX100: $0 < 400 ? 3400 : 2200) }  // 400 worn, 200 ambient
+        let f = AnalyticsEngine.wornNightlySkinTempC(sess, hr: hrs, skinTemp: temps)
+        XCTAssertEqual(f.raw, 600)
+        XCTAssertEqual(f.worn, 600)
+        XCTAssertEqual(f.inSession, 600)
+        XCTAssertEqual(f.plausible, 400)
+        XCTAssertEqual(try XCTUnwrap(f.mean), 34.0, accuracy: 1e-9)
     }
 
     // MARK: - seed → deviation (skin_temp baseline)

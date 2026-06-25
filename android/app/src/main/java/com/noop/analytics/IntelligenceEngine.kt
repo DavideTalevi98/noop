@@ -556,6 +556,12 @@ object IntelligenceEngine {
                     "matched=${res.sleepSessions.size} " +
                     "source=${daySourceToken(daily.day, importedWhoopDays, appleHealthDays)}",
             )
+            // #727: the skin-temp derivation funnel — where the nightly signal died (banked raw → worn-HR
+            // concurrent → in detected sleep → 28–42°C plausible → ≥min mean → baseline-relative dev). One
+            // line settles "skin temp never shows" with data instead of guesswork. Mirrors the Swift line.
+            res.skinTempFunnel?.let { f ->
+                diag(skinTempFunnelLogLine(daily.day, f, skinTempDevC, baselines2.skinTemp?.nValid ?: 0))
+            }
             // Stamp the computed source id + the re-scored recovery & skin-temp deviation onto the row.
             dailies.add(daily.copy(deviceId = computedId, recovery = recovery, skinTempDevC = skinTempDevC))
             // Map the rich DetectedSleep sessions → Room SleepSession cache rows.
@@ -1052,5 +1058,20 @@ object IntelligenceEngine {
             else Math.round(inBedBpms.sum().toDouble() / inBedBpms.size).toString()
         return "rhr day=$day floor=$floor nightMean=$meanLog inBedSamples=${inBedBpms.size} " +
             "(floor = WHOOP-style lowest-sustained = NOOP RHR; mean = sleeping-HR-app number)"
+    }
+
+    /**
+     * #727: the skin-temp derivation funnel as one privacy-safe line — where the nightly signal died
+     * (banked raw → worn-HR concurrent → in detected sleep → 28–42 °C plausible → ≥min mean → baseline
+     * dev). Counts only, no PII. Pure so it's unit-tested directly and is the SAME line analyzeRecent
+     * ships. Locale.US so the decimal point matches the Swift String(format:). Byte-identical to the
+     * Swift `skinTempFunnelLogLine`.
+     */
+    internal fun skinTempFunnelLogLine(day: String, funnel: SkinTempFunnel, dev: Double?, baselineNValid: Int): String {
+        val meanLog = funnel.mean?.let { String.format(java.util.Locale.US, "%.1f°C", it) } ?: "nil"
+        val devLog = dev?.let { String.format(java.util.Locale.US, "%+.2f", it) } ?: "nil"
+        return "skintemp day=$day raw=${funnel.raw} worn=${funnel.worn} inSession=${funnel.inSession} " +
+            "plausible=${funnel.plausible}/${funnel.minSamples} mean=$meanLog " +
+            "baseline=$baselineNValid/${Baselines.minNightsSeed} dev=$devLog"
     }
 }

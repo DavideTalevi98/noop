@@ -84,6 +84,9 @@ public enum AnalyticsEngine {
         /// a personal skin-temp baseline from these nightly means and re-derives
         /// `DailyMetric.skinTempDevC` in a second pass. APPROXIMATE.
         public let nightlySkinTempC: Double?
+        /// #727: per-gate tally behind `nightlySkinTempC`, so the caller can log WHERE skin temp died
+        /// (banked → worn → in-session → plausible → mean). Diagnostics only; nil for non-skin days.
+        public let skinTempFunnel: SkinTempFunnel?
         /// Per-session per-epoch MOTION magnitudes (H8), keyed by each matched session's detected start
         /// (`SleepSession.start`), on the same 30 s epoch grid as that session's `stagesJSON`. The caller
         /// persists these via `WhoopStore.persistSessionMotion` after upserting the sleep-session rows. A
@@ -94,6 +97,7 @@ public enum AnalyticsEngine {
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
                     recovery: Double?, strain: Double?, nightlySkinTempC: Double? = nil,
+                    skinTempFunnel: SkinTempFunnel? = nil,
                     restScore: Double? = nil,
                     chargeConfidence: ScoreConfidence = .calibrating,
                     effortConfidence: ScoreConfidence = .calibrating,
@@ -103,6 +107,7 @@ public enum AnalyticsEngine {
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.recovery = recovery; self.strain = strain
             self.nightlySkinTempC = nightlySkinTempC
+            self.skinTempFunnel = skinTempFunnel
             self.restScore = restScore
             self.chargeConfidence = chargeConfidence
             self.effortConfidence = effortConfidence
@@ -350,7 +355,8 @@ public enum AnalyticsEngine {
         // personal baseline. In pass 1 baselines.skinTemp is nil so the deviation is nil
         // and the mean is harvested; IntelligenceEngine seeds the baseline from those means
         // and re-derives the deviation in pass 2 (mirrors avgHrv→recovery). APPROXIMATE.
-        let nightlySkinTempC = wornNightlySkinTempC(matched, hr: hr, skinTemp: skinTemp)
+        let skinFunnel = wornNightlySkinTempC(matched, hr: hr, skinTemp: skinTemp)
+        let nightlySkinTempC = skinFunnel.mean
         let skinTempDevC: Double? = nightlySkinTempC.flatMap { (v: Double) -> Double? in
             guard let b = baselines.skinTemp, b.usable else { return nil }
             return round2(Baselines.deviation(v, state: b).delta)
@@ -501,6 +507,7 @@ public enum AnalyticsEngine {
         return DayResult(daily: daily, sleepSessions: matched, cachedSleep: cachedSleep,
                          workouts: workouts, recovery: recovery, strain: strain,
                          nightlySkinTempC: nightlySkinTempC,
+                         skinTempFunnel: skinFunnel,
                          restScore: restScore,
                          chargeConfidence: chargeConfidence,
                          effortConfidence: effortConfidence,
@@ -625,20 +632,49 @@ public enum AnalyticsEngine {
     static func wornNightlySkinTempC(_ sessions: [SleepSession],
                                      hr: [HRSample],
                                      skinTemp: [SkinTempSample],
-                                     minSamples: Int = minSkinTempSamples) -> Double? {
-        if sessions.isEmpty || skinTemp.isEmpty { return nil }
+                                     minSamples: Int = minSkinTempSamples) -> SkinTempFunnel {
+        // #727: tally each gate so a strap log can show WHERE the nightly skin-temp signal died, not just
+        // that it ended up nil. Behaviour is unchanged — `mean` is exactly the old return value.
+        if sessions.isEmpty || skinTemp.isEmpty {
+            return SkinTempFunnel(mean: nil, raw: skinTemp.count, worn: 0, inSession: 0,
+                                  plausible: 0, minSamples: minSamples)
+        }
         var wornSeconds = Set<Int>(minimumCapacity: hr.count)
         for h in hr where (30...220).contains(h.bpm) { wornSeconds.insert(h.ts) }
         var sum = 0.0
         var n = 0
+        var worn = 0
+        var inSession = 0
         for t in skinTemp {
             if !wornSeconds.contains(t.ts) { continue }
+            worn += 1
             if !sessions.contains(where: { t.ts >= $0.start && t.ts <= $0.end }) { continue }
+            inSession += 1
             let c = Double(t.raw) / 100.0
             if c < skinTempMinC || c > skinTempMaxC { continue }
             sum += c
             n += 1
         }
-        return n >= minSamples ? sum / Double(n) : nil
+        return SkinTempFunnel(mean: n >= minSamples ? sum / Double(n) : nil,
+                              raw: skinTemp.count, worn: worn, inSession: inSession,
+                              plausible: n, minSamples: minSamples)
+    }
+
+    /// #727: per-gate tally of the nightly skin-temp derivation, so a strap log can show WHERE the signal
+    /// died — banked `raw` → `worn` (concurrent worn HR) → `inSession` (inside a detected sleep span) →
+    /// `plausible` (28–42 °C, the count that feeds the `minSamples` mean gate). `mean` is nil unless
+    /// `plausible >= minSamples`. Diagnostics only; carries no scoring weight. Nested under AnalyticsEngine
+    /// like `DayResult`, so callers reference it as `AnalyticsEngine.SkinTempFunnel`.
+    public struct SkinTempFunnel {
+        public let mean: Double?
+        public let raw: Int
+        public let worn: Int
+        public let inSession: Int
+        public let plausible: Int
+        public let minSamples: Int
+        public init(mean: Double?, raw: Int, worn: Int, inSession: Int, plausible: Int, minSamples: Int) {
+            self.mean = mean; self.raw = raw; self.worn = worn
+            self.inSession = inSession; self.plausible = plausible; self.minSamples = minSamples
+        }
     }
 }
