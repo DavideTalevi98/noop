@@ -131,6 +131,29 @@ final class IntelligenceEngine: ObservableObject {
             + "(floor = WHOOP-style lowest-sustained = NOOP RHR; mean = sleeping-HR-app number)"
     }
 
+    /// #756: the WHOOP 4.0 steps-estimate calibration state as one privacy-safe line — a 4.0 sends NO step
+    /// count over BLE, so steps are estimated from motion via a coefficient fit against phone steps, and
+    /// "steps not updating" is almost always "still calibrating, have N of the 3 phone-overlap days needed"
+    /// (a day where BOTH the strap moved and the phone counted steps). This is the one steps signal a strap
+    /// log had no line for. Counts only, no PII. Pure so it's unit-tested directly. `String(format:)` uses
+    /// the POSIX locale (decimal point), matching the Android Locale.US. Byte-identical to the Android
+    /// `stepsCalibrationLogLine`.
+    nonisolated static func stepsCalibrationLogLine(status: StepsEstimateEngine.CalibrationStatus,
+                                                    estimatedDays: Int) -> String {
+        let state: String
+        switch status {
+        case let .calibrated(coefficient, sampleDays, confidence):
+            state = "calibrated coeff=\(String(format: "%.1f", coefficient)) days=\(sampleDays) "
+                + "conf=\(String(format: "%.2f", confidence))"
+        case let .manual(coefficient, sampleDays):
+            state = "manual coeff=\(String(format: "%.1f", coefficient)) days=\(sampleDays)"
+        case let .needsMoreDays(have, need):
+            state = "calibrating have=\(have)/\(need)"
+        }
+        return "steps calib: \(state), estimated \(estimatedDays) day(s) "
+            + "(WHOOP 4.0 has no BLE step count; estimated from motion calibrated to phone steps)"
+    }
+
     /// The Saturday on-or-before a "yyyy-MM-dd" local-day string — the weekly key Fitness Age writes to.
     static func saturdayKey(onOrBefore dayStr: String) -> String {
         var cal = Calendar(identifier: .gregorian); cal.timeZone = .current
@@ -782,6 +805,7 @@ final class IntelligenceEngine: ObservableObject {
             guard let s = refStepsByDay[day] else { return nil }
             return StepsEstimateEngine.CalibrationPoint(motion: motion, steps: s)
         }
+        var stepsEstimatedDays = 0   // #756: tracked across both branches for the calibration diagnostic line
         if let cal = StepsEstimateEngine.calibrate(calPoints, manualOverride: profile.stepsManualOverride) {
             // Estimate + upsert for each recent scored day that has motion but NO real phone step count.
             // (Days the phone DID count keep their real value — surfaced directly by the Today tile, not
@@ -793,6 +817,7 @@ final class IntelligenceEngine: ObservableObject {
                       let est = StepsEstimateEngine.estimate(motion: motion, calibration: cal) else { continue }
                 estPts.append(MetricPoint(day: dm.day, key: "steps_est", value: Double(est)))
             }
+            stepsEstimatedDays = estPts.count
             if !estPts.isEmpty { _ = try? await store.upsertMetricSeries(estPts, deviceId: computedId) }
             // Mirror the fit into ProfileStore so the Settings/Steps screen can show + adjust it.
             profile.stepsCalibrationCoefficient = cal.coefficient
@@ -812,6 +837,14 @@ final class IntelligenceEngine: ObservableObject {
                 profile.stepsCalibrationConfidence = 0
                 profile.stepsCalibrationManual = false
             }
+        }
+        // #756: one line per run on the steps-estimate calibration — the one metric a strap log had no
+        // diagnostic for. Only when there's strap motion this window (so an import-only / no-strap run
+        // stays quiet); "calibrating have=N/3" is the usual "steps not updating" answer on a 4.0.
+        if !motionByDay.isEmpty {
+            diagnosticSink?(Self.stepsCalibrationLogLine(
+                status: StepsEstimateEngine.status(calPoints, manualOverride: profile.stepsManualOverride),
+                estimatedDays: stepsEstimatedDays))
         }
 
         // Drop any freshly-detected session that overlaps a night the user has already hand-corrected.

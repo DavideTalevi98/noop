@@ -705,6 +705,7 @@ object IntelligenceEngine {
         val calPoints = motionByDay.mapNotNull { (day, motion) ->
             refStepsByDay[day]?.let { StepsEstimateEngine.CalibrationPoint(motion = motion, steps = it) }
         }
+        var stepsEstimatedDays = 0   // #756: tracked for the calibration diagnostic line below
         val stepsCal = StepsEstimateEngine.calibrate(calPoints, manualOverride = manualStepCoefficient)
         if (stepsCal != null) {
             // Estimate + upsert for each recent scored day that has motion but NO real phone step count.
@@ -715,9 +716,17 @@ object IntelligenceEngine {
                 val est = StepsEstimateEngine.estimate(motion, stepsCal) ?: continue
                 estRows.add(MetricSeriesRow(deviceId = computedId, day = dm.day, key = "steps_est", value = est.toDouble()))
             }
+            stepsEstimatedDays = estRows.size
             if (estRows.isNotEmpty()) repo.upsertMetricSeries(estRows)
             // Hand the fit back so the caller mirrors it into ProfileStore for the Settings/Steps screen.
             persistStepsCalibration(stepsCal)
+        }
+        // #756: one line per run on the steps-estimate calibration — the one metric a strap log had no
+        // diagnostic for. Only when there's strap motion this window (so an import-only / no-strap run stays
+        // quiet); "calibrating have=N/3" is the usual "steps not updating" answer on a 4.0. Mirrors Swift.
+        if (motionByDay.isNotEmpty()) {
+            diag(stepsCalibrationLogLine(
+                StepsEstimateEngine.status(calPoints, manualOverride = manualStepCoefficient), stepsEstimatedDays))
         }
         // DURABILITY GUARD (iOS PR #395 cachedSleepKept): drop any freshly-detected session that
         // time-overlaps a night the user has already hand-corrected. A detected onset can drift
@@ -1052,5 +1061,27 @@ object IntelligenceEngine {
             else Math.round(inBedBpms.sum().toDouble() / inBedBpms.size).toString()
         return "rhr day=$day floor=$floor nightMean=$meanLog inBedSamples=${inBedBpms.size} " +
             "(floor = WHOOP-style lowest-sustained = NOOP RHR; mean = sleeping-HR-app number)"
+    }
+
+    /**
+     * #756: the WHOOP 4.0 steps-estimate calibration state as one privacy-safe line — a 4.0 sends NO step
+     * count over BLE, so steps are estimated from motion via a coefficient fit against phone steps, and
+     * "steps not updating" is almost always "still calibrating, have N of the 3 phone-overlap days needed"
+     * (a day where BOTH the strap moved and the phone counted steps). The one steps signal a strap log had
+     * no line for. Counts only, no PII. Pure so it's unit-tested directly. Locale.US so the decimal point
+     * matches the Swift String(format:). Byte-identical to the Swift `stepsCalibrationLogLine`.
+     */
+    internal fun stepsCalibrationLogLine(status: StepsEstimateEngine.CalibrationStatus, estimatedDays: Int): String {
+        val state = when (status) {
+            is StepsEstimateEngine.CalibrationStatus.Calibrated ->
+                "calibrated coeff=${String.format(java.util.Locale.US, "%.1f", status.coefficient)} " +
+                    "days=${status.sampleDays} conf=${String.format(java.util.Locale.US, "%.2f", status.confidence)}"
+            is StepsEstimateEngine.CalibrationStatus.Manual ->
+                "manual coeff=${String.format(java.util.Locale.US, "%.1f", status.coefficient)} days=${status.sampleDays}"
+            is StepsEstimateEngine.CalibrationStatus.NeedsMoreDays ->
+                "calibrating have=${status.have}/${status.need}"
+        }
+        return "steps calib: $state, estimated $estimatedDays day(s) " +
+            "(WHOOP 4.0 has no BLE step count; estimated from motion calibrated to phone steps)"
     }
 }

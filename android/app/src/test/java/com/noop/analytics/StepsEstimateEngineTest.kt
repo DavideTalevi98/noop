@@ -135,4 +135,32 @@ class StepsEstimateEngineTest {
         assertTrue(status.canEstimate)
         assertEquals("Calibrated by hand", status.headline)
     }
+
+    // #756: pin the steps-calibration DIAGNOSTIC line (pure formatter on IntelligenceEngine) and lock the
+    // Swift/Android string parity — the Swift stepsCalibrationLogLine asserts the identical strings.
+    private val stepsTail = " (WHOOP 4.0 has no BLE step count; estimated from motion calibrated to phone steps)"
+
+    @Test fun stepsCalibLine_calibrating() {
+        assertEquals(
+            "steps calib: calibrating have=1/3, estimated 0 day(s)$stepsTail",
+            IntelligenceEngine.stepsCalibrationLogLine(
+                StepsEstimateEngine.CalibrationStatus.NeedsMoreDays(have = 1, need = 3), 0),
+        )
+    }
+
+    @Test fun stepsCalibLine_calibrated() {
+        assertEquals(
+            "steps calib: calibrated coeff=120.0 days=5 conf=0.78, estimated 4 day(s)$stepsTail",
+            IntelligenceEngine.stepsCalibrationLogLine(
+                StepsEstimateEngine.CalibrationStatus.Calibrated(coefficient = 120.0, sampleDays = 5, confidence = 0.78), 4),
+        )
+    }
+
+    @Test fun stepsCalibLine_manual() {
+        assertEquals(
+            "steps calib: manual coeff=100.0 days=0, estimated 6 day(s)$stepsTail",
+            IntelligenceEngine.stepsCalibrationLogLine(
+                StepsEstimateEngine.CalibrationStatus.Manual(coefficient = 100.0, sampleDays = 0), 6),
+        )
+    }
 }
