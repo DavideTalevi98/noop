@@ -254,6 +254,18 @@ fun BreatheScreen(viewModel: AppViewModel) {
         }
     }
 
+    // #769: a BLE drop mid-session leaves the WHOOP 5/MG firmware's haptics stuck "running" — it never
+    // clears an interrupted RUN_HAPTICS pattern, and re-firing buzzes on a flaky reconnect re-asserts it.
+    // So when the link drops while a session is live, end it (same cleanup as leaving the screen). The
+    // session is strap-dependent anyway (the buzz + the R-R measurement). connected (not bonded) so a
+    // legit "Visual only" session — connected but unbonded — isn't killed. Mirrors the iOS link-drop stop.
+    LaunchedEffect(live.connected) {
+        if (running && !live.connected) {
+            endSession()
+            running = false
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             // Leaving mid-session still banks the outcome (mirrors macOS onDisappear → stop()).

@@ -78,6 +78,18 @@ final class BiofeedbackController: ObservableObject {
     init(model: AppModel, live: LiveState) {
         self.model = model
         self.live = live
+        // #769: a BLE drop mid-session leaves the WHOOP 5/MG firmware's haptics stuck "running" — it never
+        // clears an interrupted RUN_HAPTICS pattern, and re-firing buzzes on a flaky reconnect re-asserts
+        // it. So when the link drops while a session is live, STOP it (cancel every queued pulse, clear the
+        // session) — the "cancel/clean up if the BLE connection is interrupted" the report asks for. The
+        // session is strap-dependent anyway (L2 needs the buzz, L1's resonance needs the strap's R-R), so
+        // a dropped link ends it cleanly rather than orphaning a half-broken session.
+        linkSub = live.$connected
+            .removeDuplicates()
+            .sink { [weak self] connected in
+                guard let self, !connected, self.running else { return }
+                self.stop()
+            }
     }
 
     // MARK: - Shared session bookkeeping
@@ -91,6 +103,9 @@ final class BiofeedbackController: ObservableObject {
     private var calmTick: DispatchWorkItem?
     /// The sweep's live R-R subscription (L1) — held so stop() tears it down cleanly.
     private var sweepRRSub: AnyCancellable?
+    /// #769: watches the BLE link for the controller's whole life; drops the session if it goes down
+    /// mid-run (see init). Held for the controller lifetime, not torn down per-session.
+    private var linkSub: AnyCancellable?
 
     /// Can we actually buzz the strap? L2/L3 are haptic-FIRST, so they are disabled (not faked) when the
     /// encrypted channel isn't up. L1 still runs visual-only (the orb + phase word carry it).
