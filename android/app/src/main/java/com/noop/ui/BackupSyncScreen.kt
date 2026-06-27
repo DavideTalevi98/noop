@@ -80,7 +80,7 @@ fun BackupSyncScreen() {
 
     LazyScreenScaffold(
         title = "Backup & Sync",
-        subtitle = "Save a full backup to a folder you choose — point it at Google Drive / iCloud / Dropbox for off-device sync.",
+        subtitle = "Save a full backup to a folder you choose — point it at Google Drive / Dropbox for off-device sync.",
     ) {
         // 1 · Destination folder
         item {
@@ -89,8 +89,13 @@ fun BackupSyncScreen() {
                     Text("Backup folder", style = NoopType.headline, color = Palette.textPrimary)
                     Text(
                         treeUri?.let { "Saving to: ${folderLabel(it)}" }
-                            ?: "No folder chosen yet. Pick one your cloud app already syncs (Drive/iCloud/Dropbox), or any local folder.",
+                            ?: "No folder chosen yet. Pick one your cloud app already syncs, or any local folder.",
                         style = NoopType.footnote, color = Palette.textTertiary,
+                    )
+                    Text(
+                        "Tip: a desktop Drive/Dropbox app auto-syncs a chosen folder. On the phone, save to a " +
+                            "folder a sync app (e.g. FolderSync / Autosync) keeps in your cloud.",
+                        style = NoopType.caption, color = Palette.accent,
                     )
                     NoopButton(
                         text = if (treeUri == null) "Choose folder" else "Change folder",

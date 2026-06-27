@@ -34,8 +34,11 @@ struct BackupSyncView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Backup folder").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                 Text(folderLabel.map { "Saving to: \($0)" }
-                     ?? "No folder chosen yet. Pick one your cloud app already syncs (Drive/iCloud/Dropbox), or any local folder.")
+                     ?? "No folder chosen yet. Pick one your cloud app already syncs, or any local folder.")
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Tip: choose a folder in iCloud Drive — your backups then sync to all your Apple devices automatically, no account setup needed.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
                     .fixedSize(horizontal: false, vertical: true)
                 Button { chooseFolder() } label: {
                     Label(folderLabel == nil ? "Choose folder" : "Change folder", systemImage: "folder")
