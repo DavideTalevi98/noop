@@ -47,4 +47,19 @@ final class BackfillerSessionTallyTests: XCTestCase {
             Backfiller.sessionSummaryLine(rows: 872, motion: 172, skinTemp: 0, nights: 1),
             "Backfill: session persisted 872 rows (172 with motion, 0 skin-temp) across 1 night(s).")
     }
+
+    // #783: trim=0xFFFFFFFF on a connection that banked NOTHING keeps the "fully charge it" advice.
+    func testNoCursorChargeAdviceWhenConnectionBankedNothing() {
+        XCTAssertEqual(
+            Backfiller.noCursorLine(bankedRows: 0),
+            "Backfill: strap reported no flash cursor (trim=0xFFFFFFFF) — it has no banked history to offload. This is a clock/charge state on the strap, not a decode problem; fully charge it and reconnect so it starts banking.")
+    }
+
+    // #783: the SAME sentinel after a real drain (the #364 auto-continuation's normal terminal state) is
+    // neutral end-of-data, NOT a charge warning — the false-alarm the issue reported.
+    func testNoCursorNeutralWhenConnectionBankedRows() {
+        XCTAssertEqual(
+            Backfiller.noCursorLine(bankedRows: 692),
+            "Backfill: end-of-data (trim=0xFFFFFFFF) — cursor caught up after offloading 692 row(s); the normal terminal state of a healthy drain, not a charge problem.")
+    }
 }

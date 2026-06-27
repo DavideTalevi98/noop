@@ -93,8 +93,16 @@ final class Backfiller {
     private(set) var sessionSkinTempRows = 0
     private var sessionNightKeys: Set<Int> = []
     var sessionNights: Int { sessionNightKeys.count }
+    /// #783: rows banked since this Backfiller was created. It's a long-lived singleton (built once in
+    /// BLEManager.bootstrapStore, NOT per connection) and begin() does NOT reset this — so it answers "has
+    /// the strap banked ANY real history this run?". Lets finishChunk tell trim=0xFFFFFFFF as the normal
+    /// end-of-data / caught-up state from the genuine no-history charge state. Must stay un-reset: a
+    /// session-scoped count resets every begin() and would false-alarm on the #364 auto-continuation, and a
+    /// per-connection reset would re-false-alarm on a reconnect that's already caught up. A strap that has
+    /// banked anything is definitively NOT in the no-history charge state.
+    private(set) var bankedRowsThisRun = 0
     /// Logged once per session when the strap reports trim=0xFFFFFFFF — the "no valid flash cursor"
-    /// sentinel: it has no banked history to offload (a clock/charge state, not a decode bug).
+    /// sentinel: end-of-data. Only "charge it" advice when nothing was banked all connection (#783).
     private var loggedNoCursor = false
 
     /// #547: running count of historical records DROPPED this session for an implausible own-timestamp
@@ -219,6 +227,18 @@ final class Backfiller {
         return "Backfill: session persisted \(rows) rows (\(motion) with motion, \(skinTemp) skin-temp) across \(nights) night(s)."
     }
 
+    /// #783: the trim=0xFFFFFFFF ("no valid flash cursor") line, made context-aware. The sentinel means TWO
+    /// different things: on a connection that has banked real rows it's just "cursor drained / caught up" —
+    /// the NORMAL terminal state of every healthy drain (and of the #364 auto-continuation) — so a neutral
+    /// line; only on a connection that banked NOTHING does it indicate the clock/charge state the original
+    /// "fully charge it" advice was for. Pure for tests; byte-identical Swift/Android.
+    nonisolated static func noCursorLine(bankedRows rows: Int) -> String {
+        if rows > 0 {
+            return "Backfill: end-of-data (trim=0xFFFFFFFF) — cursor caught up after offloading \(rows) row(s); the normal terminal state of a healthy drain, not a charge problem."
+        }
+        return "Backfill: strap reported no flash cursor (trim=0xFFFFFFFF) — it has no banked history to offload. This is a clock/charge state on the strap, not a decode problem; fully charge it and reconnect so it starts banking."
+    }
+
     /// Commit one HISTORY_END chunk: (persist decoded → enqueueRaw when present) → setCursor → ackTrim.
     /// Early-returns on any throw to preserve the safe-trim invariant.
     ///
@@ -236,7 +256,7 @@ final class Backfiller {
         // strap, not a NOOP decode bug (retro-decode can't help here). The ack still proceeds below.
         if trim == 0xFFFFFFFF, !loggedNoCursor {
             loggedNoCursor = true
-            log?("Backfill: strap reported no flash cursor (trim=0xFFFFFFFF) — it has no banked history to offload. This is a clock/charge state on the strap, not a decode problem; fully charge it and reconnect so it starts banking.")
+            log?(Backfiller.noCursorLine(bankedRows: bankedRowsThisRun))
         }
 
         let frames = chunk
@@ -335,6 +355,7 @@ final class Backfiller {
             // "persisted N rows (M with motion) across K night(s)" — the win-rate signal a log never had.
             let tally = Backfiller.chunkTally(counts: counts, timestamps: decoded.gravity.map(\.ts) + decoded.hr.map(\.ts))
             sessionRowsPersisted += tally.rows
+            bankedRowsThisRun += tally.rows         // #783: app-run-scoped (never reset; see decl)
             sessionMotionRows += tally.motion
             sessionSkinTempRows += counts.skinTemp
             sessionNightKeys.formUnion(tally.nights)

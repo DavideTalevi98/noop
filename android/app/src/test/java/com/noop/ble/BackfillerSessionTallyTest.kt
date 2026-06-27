@@ -56,4 +56,24 @@ class BackfillerSessionTallyTest {
             Backfiller.sessionSummaryLine(872, 172, 0, 1),
         )
     }
+
+    // #783: trim=0xFFFFFFFF on a connection that banked NOTHING keeps the "fully charge it" advice.
+    @Test fun noCursorChargeAdviceWhenConnectionBankedNothing() {
+        assertEquals(
+            "Backfill: strap reported no flash cursor (trim=0xFFFFFFFF) — it has no banked history to " +
+                "offload. This is a clock/charge state on the strap, not a decode problem; fully charge " +
+                "it and reconnect so it starts banking.",
+            Backfiller.noCursorLine(0),
+        )
+    }
+
+    // #783: the SAME sentinel after a real drain (the #364 auto-continuation's normal terminal state) is
+    // neutral end-of-data, NOT a charge warning — the false-alarm the issue reported.
+    @Test fun noCursorNeutralWhenConnectionBankedRows() {
+        assertEquals(
+            "Backfill: end-of-data (trim=0xFFFFFFFF) — cursor caught up after offloading 692 " +
+                "row(s); the normal terminal state of a healthy drain, not a charge problem.",
+            Backfiller.noCursorLine(692),
+        )
+    }
 }
