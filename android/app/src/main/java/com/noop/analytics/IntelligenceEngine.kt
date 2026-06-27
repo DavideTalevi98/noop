@@ -109,6 +109,10 @@ object IntelligenceEngine {
         // screen. Both default to no-op so existing callers / tests are unaffected.
         manualStepCoefficient: Double? = null,
         persistStepsCalibration: (StepsEstimateEngine.Calibration) -> Unit = {},
+        // The steps-estimate calibration STATE each pass (calibrated / manual / still-calibrating N/3), so
+        // the Context-aware caller can persist it for the Today steps tile to show WHY a 4.0 reads "No Data"
+        // (it's a motion estimate that needs phone-overlap days) instead of a bare blank. Default no-op.
+        persistStepsStatus: (StepsEstimateEngine.CalibrationStatus) -> Unit = {},
         // Manual "Recalibrate baseline" anchor (noop.hrvBaselineEpoch, epoch SECONDS; 0 = none). The
         // analytics layer is Context-free, so the caller reads it from SharedPreferences and passes it
         // down to the HRV foldHistory. Default 0.0 → no recalibration, so other callers are unaffected.
@@ -132,8 +136,8 @@ object IntelligenceEngine {
         useExperimentalSleepV2: Boolean = false,
     ): List<Computed> = withContext(Dispatchers.Default) {
         analyzeRecentOnCpu(repo, profile, maxDays, importedDeviceId, maxHROverride, nowSeconds,
-            ownerSource, manualStepCoefficient, persistStepsCalibration, baselineEpoch, recoveryEpoch, diag,
-            useExperimentalSleepV2)
+            ownerSource, manualStepCoefficient, persistStepsCalibration, persistStepsStatus, baselineEpoch,
+            recoveryEpoch, diag, useExperimentalSleepV2)
     }
 
     /** History span for the one-shot Effort rescore — large enough to cover any real wear history,
@@ -188,6 +192,7 @@ object IntelligenceEngine {
         ownerSource: DayOwnerSource? = null,
         manualStepCoefficient: Double? = null,
         persistStepsCalibration: (StepsEstimateEngine.Calibration) -> Unit = {},
+        persistStepsStatus: (StepsEstimateEngine.CalibrationStatus) -> Unit = {},
         baselineEpoch: Double = 0.0,
         recoveryEpoch: Double = 0.0,
         diag: (String) -> Unit = {},
@@ -718,6 +723,13 @@ object IntelligenceEngine {
             if (estRows.isNotEmpty()) repo.upsertMetricSeries(estRows)
             // Hand the fit back so the caller mirrors it into ProfileStore for the Settings/Steps screen.
             persistStepsCalibration(stepsCal)
+        }
+        // Surface the steps-estimate calibration STATE for the Today steps tile so a WHOOP 4.0's "No Data"
+        // self-explains (it's a calibrating motion estimate, not a broken metric). Only when there's strap
+        // motion this window, so an import-only / no-strap run leaves the prior headline untouched. The Swift
+        // TodayView already shows this; this is Android catching up to parity.
+        if (motionByDay.isNotEmpty()) {
+            persistStepsStatus(StepsEstimateEngine.status(calPoints, manualOverride = manualStepCoefficient))
         }
         // DURABILITY GUARD (iOS PR #395 cachedSleepKept): drop any freshly-detected session that
         // time-overlaps a night the user has already hand-corrected. A detected onset can drift

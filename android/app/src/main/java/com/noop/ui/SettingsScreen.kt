@@ -199,6 +199,16 @@ class ProfileStore(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(KEY_STEPS_MANUAL_FLAG, false)
         set(v) = prefs.edit().putBoolean(KEY_STEPS_MANUAL_FLAG, v).apply()
 
+    /** Latest calibration-state headline ("Need N more days where your phone also counted steps" /
+     *  "Estimated from N days …" / "Calibrated by hand"), persisted each analysis pass so the Today steps
+     *  tile can explain a WHOOP 4.0's "No Data" (a motion estimate that needs phone-overlap days) instead of
+     *  a bare blank. Null until first computed. */
+    var stepsCalibrationHeadline: String?
+        get() = prefs.getString("steps_calib_headline", null)
+        set(v) = prefs.edit().apply {
+            if (v == null) remove("steps_calib_headline") else putString("steps_calib_headline", v)
+        }.apply()
+
     /** User-set manual coefficient. 0 = auto-fit (null to the engine); > 0 = manual override. */
     var stepsManualCoefficient: Double
         get() = prefs.getFloat(KEY_STEPS_MANUAL_COEFF, 0f).toDouble().coerceAtLeast(0.0)

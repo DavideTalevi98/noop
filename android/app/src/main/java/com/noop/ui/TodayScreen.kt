@@ -519,6 +519,8 @@ fun TodayScreen(
     // as a measured count. resolvedSeries reads the computed source for the my-whoop key, exactly like
     // the Explore "steps_est" metric. Null until loaded / no estimate for the day. (#150)
     var stepsEstForDay by remember { mutableStateOf<Int?>(null) }
+    // #756 follow-up: the persisted steps calibration headline, for the steps tile's "No Data" explainer.
+    val stepsCalibHint = profileStore.stepsCalibrationHeadline
     LaunchedEffect(days, selectedDayKey) {
         val byDay = runCatching {
             viewModel.repo.resolvedSeries("steps_est", "my-whoop", "0000-00-00", "9999-99-99")
@@ -894,6 +896,7 @@ fun TodayScreen(
                 vitality = vitalityToday,
                 importedStepsForDay = importedStepsForDay,
                 estimatedStepsForDay = stepsEstForDay,
+                stepsCalibHint = stepsCalibHint,
                 latestActiveKcal = latestActiveKcal,
                 hydrationTotalMl = hydrationTotalMl,
                 hydrationGoalMl = hydrationGoalMl,
@@ -1019,6 +1022,7 @@ fun TodayScreen(
                 profileWeightKg = profileWeightKg,
                 importedStepsForDay = importedStepsForDay,
                 estimatedStepsForDay = stepsEstForDay,
+                stepsCalibHint = stepsCalibHint,
                 restScore = restScoreForDay,
                 restSpark = restCompositeSpark,
                 enabledMetrics = enabledKeyMetrics,
@@ -1939,6 +1943,7 @@ private fun YourCardsSection(
     vitality: Double?,
     importedStepsForDay: Int?,
     estimatedStepsForDay: Int?,
+    stepsCalibHint: String?,
     latestActiveKcal: Double?,
     hydrationTotalMl: Double,
     hydrationGoalMl: Int,
@@ -1983,6 +1988,7 @@ private fun YourCardsSection(
                         vitality = vitality,
                         importedStepsForDay = importedStepsForDay,
                         estimatedStepsForDay = estimatedStepsForDay,
+                        stepsCalibHint = stepsCalibHint,
                         latestActiveKcal = latestActiveKcal,
                         hydrationTotalMl = hydrationTotalMl,
                         hydrationGoalMl = hydrationGoalMl,
@@ -2064,6 +2070,7 @@ private fun dashboardCardValue(
     vitality: Double?,
     importedStepsForDay: Int?,
     estimatedStepsForDay: Int?,
+    stepsCalibHint: String? = null,
     latestActiveKcal: Double?,
     hydrationTotalMl: Double,
     hydrationGoalMl: Int,
@@ -2091,7 +2098,10 @@ private fun dashboardCardValue(
             val real = day?.steps?.let { intStringGrouped(it.toDouble()) }
                 ?: importedStepsForDay?.let { intStringGrouped(it.toDouble()) }
             val est = estimatedStepsForDay?.let { intStringGrouped(it.toDouble()) }
-            real ?: est ?: NO_DATA
+            // #756 follow-up: a WHOOP 4.0 still calibrating its steps estimate shows a short "Calibrating"
+            // (the full "N of 3 days" explainer is on the metric-grid tile caption) instead of a bare
+            // "No Data" — mirrors the Stress card's STRESS_CALIBRATING.
+            real ?: est ?: (if (stepsCalibHint != null) "Calibrating" else NO_DATA)
         }
         DashboardCard.CALORIES ->
             withUnit(latestActiveKcal?.let { intStringGrouped(it) } ?: NO_DATA)
@@ -2810,6 +2820,10 @@ private fun MetricGrid(
     profileWeightKg: Double = 75.0,
     importedStepsForDay: Int? = null,
     estimatedStepsForDay: Int? = null,
+    // #756 follow-up: the steps calibration headline ("Need N more days where your phone also counted
+    // steps" …), shown on TODAY's steps tile when there's no count yet so a WHOOP 4.0 user learns steps
+    // are a calibrating motion estimate, not broken — instead of a bare "No Data". Null = show nothing extra.
+    stepsCalibHint: String? = null,
     restScore: Double? = null,
     // The Rest tile's sparkline: the trailing-window Rest composite (0–100, `sleep_performance`), so the
     // mini-graph tracks the Rest SCORE rather than raw sleep minutes (#614 follow-up). Other tiles still
@@ -2964,7 +2978,9 @@ private fun MetricGrid(
                 caption = when {
                     realSteps != null -> "steps"
                     estimatedStepsForDay != null -> "est."
-                    else -> buildingHint(KeyMetric.STEPS, isToday)
+                    // No count yet: on TODAY, explain the calibrating motion-estimate (#756 follow-up)
+                    // instead of a generic "building"; past days stay a bare dash.
+                    else -> (if (isToday) stepsCalibHint else null) ?: buildingHint(KeyMetric.STEPS, isToday)
                 },
                 accent = steps?.let { Palette.metricCyan } ?: Palette.textTertiary,
                 spark = emptyList(),
