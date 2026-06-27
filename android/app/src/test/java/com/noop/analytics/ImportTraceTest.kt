@@ -144,6 +144,14 @@ class ImportTraceTest {
         assertEquals("", ImportTrace.redactCell(""))
     }
 
+    @Test fun redactCellMasksWholeUnicodeNumberGroupLikeSwift() {
+        // Swift's Character.isNumber masks the WHOLE Unicode Number group, not just decimal digits. A
+        // superscript two (U+00B2, category No) and a Roman numeral (U+2160, category Nl) must mask to "#"
+        // so the Kotlin output is byte-identical to the Swift twin - Kotlin's isDigit() would have left both.
+        assertEquals("#", ImportTrace.redactCell("²"))
+        assertEquals("#", ImportTrace.redactCell("Ⅰ"))
+    }
+
     @Test fun kindWireMapsKnownLabels() {
         assertEquals("whoopExport", ImportTrace.kindWire("WHOOP"))
         assertEquals("appleHealth", ImportTrace.kindWire("Apple Health"))

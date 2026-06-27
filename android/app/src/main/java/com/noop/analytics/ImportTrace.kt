@@ -97,18 +97,31 @@ object ImportTrace {
     const val MAX_SAMPLE_CELLS = 12
     const val MAX_SAMPLE_CHARS = 200
 
-    /** Mask one cell's value: digits -> "#", letters -> "x", everything else passes through, so the SHAPE
-     *  survives but no real datum does. Mirrors the Swift redactCell. */
+    /** Mask one cell's value: any Unicode NUMBER -> "#", any letter -> "x", everything else passes through,
+     *  so the SHAPE survives but no real datum does. Byte-identical to the Swift redactCell: Swift uses
+     *  Character.isNumber (the whole Unicode Number group - decimal Nd, letter-number Nl, other-number No),
+     *  so the test below matches all three rather than Kotlin's isDigit() (decimal Nd only) - otherwise a
+     *  superscript or fraction in a cell would mask differently across platforms and the masked output for
+     *  the SAME row would not be identical. */
     fun redactCell(s: String): String {
         val sb = StringBuilder(s.length)
         for (ch in s) {
             when {
-                ch.isDigit() -> sb.append('#')
+                isUnicodeNumber(ch) -> sb.append('#')
                 ch.isLetter() -> sb.append('x')
                 else -> sb.append(ch)
             }
         }
         return sb.toString()
+    }
+
+    /** True for the whole Unicode Number group (Nd, Nl, No), matching Swift's Character.isNumber - NOT just
+     *  decimal digits (Kotlin's Char.isDigit), so masked output is byte-identical to the Swift twin. */
+    private fun isUnicodeNumber(ch: Char): Boolean = when (Character.getType(ch)) {
+        Character.DECIMAL_DIGIT_NUMBER.toInt(),
+        Character.LETTER_NUMBER.toInt(),
+        Character.OTHER_NUMBER.toInt() -> true
+        else -> false
     }
 
     /** Mask a free-form file sample the SAME way as a cell, after collapsing newlines, then hard-cap it.
