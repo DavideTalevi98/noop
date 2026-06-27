@@ -1,0 +1,113 @@
+# Fork-only: build sideloadable, UNSIGNED macOS + iOS testing artifacts on demand.
+#
+# NOT for upstream — the maintainer ships the macOS .app by hand and keeps CI signing-free
+# for anonymity. This is ryanbr's convenience build, mirroring app-build.yml's proven
+# XcodeGen + xcodebuild setup but PACKAGING the output:
+#   - macOS: the unsigned NOOP.app, zipped. Gatekeeper warns on first open (right-click → Open).
+#   - iOS:   an UNSIGNED .ipa for sideloading via AltStore / Sideloadly (they re-sign on-device).
+#            The embedded watchOS app is stripped — sideloading an embedded watch app under a
+#            free Apple ID is unproven, so we ship the iPhone app only.
+# No secrets, no signing identity. Trigger from the Actions tab (Run workflow).
+name: Testing Apple (fork)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create + attach assets to a Release on the fork
+
+concurrency:
+  group: testing-apple
+  cancel-in-progress: true
+
+jobs:
+  # Create the (empty) dated prerelease first so the macOS and iOS jobs can each attach to it
+  # without racing to create the same tag.
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          TAG="testing-apple-${DATE}-${{ github.run_number }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --target "${{ github.sha }}" \
+            --title "Testing macOS + iOS ${DATE}" \
+            --notes "Unsigned macOS \`.app\` (zip) and unsigned iOS \`.ipa\`, built from \`${{ github.ref_name }}\` (\`${{ github.sha }}\`).
+
+          - **macOS**: download the zip, unzip, then **right-click → Open** (it's unsigned, so Gatekeeper warns once).
+          - **iOS**: sideload the \`.ipa\` with **AltStore** or **Sideloadly** (they re-sign on-device). The embedded Apple Watch app is stripped — iPhone app only.
+
+          Includes NOOP \`main\` + ryanbr's open PRs + reviewed community PRs (see the matching APK release for the full PR breakdown)."
+
+  macos:
+    needs: meta
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build NOOP.app (macOS, unsigned)
+        run: >-
+          xcodebuild -scheme Strand -configuration Debug -destination 'platform=macOS'
+          -derivedDataPath build/dd
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          build
+      - name: Package .app -> zip
+        run: |
+          APP=$(find build/dd/Build/Products -maxdepth 3 -name 'NOOP.app' -type d | head -1)
+          test -n "$APP" || { echo "NOOP.app not found"; exit 1; }
+          echo "Packaging $APP"
+          ditto -c -k --keepParent "$APP" NOOP-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noop-macos-app
+          path: NOOP-macos.zip
+          if-no-files-found: error
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.meta.outputs.tag }}" NOOP-macos.zip --repo "$GITHUB_REPOSITORY" --clobber
+
+  ios:
+    needs: meta
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build NOOPiOS for device (unsigned)
+        run: >-
+          xcodebuild -scheme NOOPiOS -configuration Debug -destination 'generic/platform=iOS'
+          -derivedDataPath build/dd
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          build
+      - name: Package unsigned .ipa (strip the embedded watch app)
+        run: |
+          APP=$(find build/dd/Build/Products/Debug-iphoneos -maxdepth 2 -name 'NOOP.app' -type d | head -1)
+          test -n "$APP" || { echo "NOOP.app (iphoneos) not found"; exit 1; }
+          echo "Packaging $APP"
+          rm -rf "$APP/Watch"            # embedded watch app: unproven to sideload, strip it
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qr NOOP-ios-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noop-ios-ipa
+          path: NOOP-ios-unsigned.ipa
+          if-no-files-found: error
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.meta.outputs.tag }}" NOOP-ios-unsigned.ipa --repo "$GITHUB_REPOSITORY" --clobber
