@@ -250,6 +250,11 @@ struct RootTabView: View {
                 }
                 moreSection("App") {
                     MoreRow("Automations", "wand.and.stars") { AutomationsView() }
+                    // #805: the strap wake-alarm UI moved from Automations to the dedicated SmartAlarmView
+                    // (#766) and was wired into the macOS/iPad sidebar, but never added here — so on iPhone
+                    // the alarm screen was unreachable ("Smart alarms cannot be found anywhere"). Sits next to
+                    // Automations, where it used to live. The alarm still fired; only this entry point was missing.
+                    MoreRow("Alarms", "alarm.fill") { SmartAlarmView() }
                     MoreRow("Siri & Shortcuts", "mic.fill") { SiriShortcutsSettingsView() }
                     MoreRow("Settings", "gearshape.fill") { SettingsView() }
                     MoreRow("Support", "hands.clap.fill") { SupportView() }
