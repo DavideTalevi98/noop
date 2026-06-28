@@ -472,7 +472,11 @@ final class IntelligenceEngine: ObservableObject {
                 // stream, so the reported scaledSteps equals the day's steps_est, so the trace cannot diverge.
                 // Pure inputs, carried out so the main actor replays it tagged `.steps` in per-day order.
                 var stepsTrace: [String] = []
-                if stepsTraceActive {
+                // #807: only a counter strap (WHOOP 5/MG) banks step samples — a WHOOP 4.0 has none, so without
+                // the daySteps guard the trace spams "counterSamples=0 (need >=2 for a delta)" every day and
+                // buries the motion-volume calibration trace that actually explains a 4.0's steps. Mirrors the
+                // Android IntelligenceEngine guard (`stepsTraceSink != null && daySteps.isNotEmpty()`).
+                if stepsTraceActive && !daySteps.isEmpty {
                     stepsTrace = StepsEstimateEngine.rawCounterTrace(
                         daySteps: daySteps, dayKey: day, tzOffsetSeconds: tzOffset,
                         ticksPerStep: up.stepTicksPerStep)
