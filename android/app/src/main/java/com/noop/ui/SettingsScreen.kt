@@ -1569,16 +1569,23 @@ fun SettingsScreen(vm: AppViewModel, onOpenTestCentre: () -> Unit = {}) {
                     },
                 )
                 RowDivider()
-                ToggleRow(
-                    title = "Cycle awareness",
-                    detail = "Reads a coarse menstrual-cycle phase from your nightly skin-temperature shift, on this device only. Awareness only — not contraception, not a fertility predictor, not a medical service.",
-                    checked = cycleTracking,
-                    onCheckedChange = {
-                        cycleTracking = it
-                        vm.setCycleTrackingEnabled(it)
-                    },
-                )
-                RowDivider()
+                // #801: not offered on a male profile (it would just sit at "Learning your pattern"). Hidden
+                // when off for a male profile so it can't be enabled here; shown when already on so it can be
+                // turned off — mirroring HealthScreen's `if (cycleEnabled) … else if (cycleOptInApplies)`. The
+                // sister surfaces (Health opt-in, the card's off-control) were sex-gated in v7.3.2; this is the
+                // one toggle that was missed, so a male profile could still enable it here.
+                if (cycleTracking || cycleOptInApplies(profile.sex)) {
+                    ToggleRow(
+                        title = "Cycle awareness",
+                        detail = "Reads a coarse menstrual-cycle phase from your nightly skin-temperature shift, on this device only. Awareness only — not contraception, not a fertility predictor, not a medical service.",
+                        checked = cycleTracking,
+                        onCheckedChange = {
+                            cycleTracking = it
+                            vm.setCycleTrackingEnabled(it)
+                        },
+                    )
+                    RowDivider()
+                }
                 ToggleRow(
                     title = "Hydration tracking",
                     detail = "Adds a simple fluid log with a daily goal that adjusts to your effort. Tap to add a sip, cup or bottle and watch a progress ring fill. On this phone only — nothing is synced.",
