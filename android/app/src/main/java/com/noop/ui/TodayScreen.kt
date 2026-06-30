@@ -154,6 +154,16 @@ private const val CARD_CALIBRATING = "calibratingBaseline"
  *  dashboard back onto the strap's start day (#739). Reset only happens on a genuine fresh process. */
 private var todayDidAutoLandThisLaunch = false
 
+/** #860 item 1: process-lifetime guard for the launch snap-to-today. `selectedDayOffset` is rememberSaveable
+ *  so a tab-away keeps the user's chosen day (#614). The same persistence, however, rides the saved-instance
+ *  -state bundle across a system-initiated process kill + restore (common after an app UPDATE), so a user who
+ *  was browsing an OLD day when the process died reopened the app pinned to that day instead of today. A
+ *  top-level var = one value per LAUNCH (reset only on a genuine fresh process, like todayDidAutoLandThisLaunch
+ *  above), so we can force the selected day back to today exactly once per launch and leave in-session
+ *  tab-away/restore behaviour untouched. iOS parity: TodayView's selectedDayOffset is plain @State, which is
+ *  never persisted and so already re-inits to 0 on every fresh launch. */
+private var todayDidSnapToTodayThisLaunch = false
+
 /** #739: only auto-land (#605) when the newest banked day is within this many days of today. Past this, the
  *  data is stale enough that jumping the dashboard there on launch is more surprising than an empty today. */
 private const val AUTO_LAND_MAX_DAYS_BACK = 14L
@@ -236,6 +246,17 @@ fun TodayScreen(
     // looking at (#614 follow-up). Persisting it across the save/restore keeps the chosen day put. The
     // #605/#739 auto-land guard is a separate process-lifetime flag (todayDidAutoLandThisLaunch below).
     var selectedDayOffset by rememberSaveable { mutableIntStateOf(0) }
+    // #860 item 1: on a GENUINE fresh process (not a tab-away/recomposition), force the selected day back to
+    // today. rememberSaveable restores selectedDayOffset from the saved-instance-state bundle, which the system
+    // reuses across a process kill + restore (the after-an-update case in the report); without this, a user who
+    // was viewing an old day when the process died reopened the app stranded on that day. The top-level guard is
+    // false exactly once per launch, so this snaps to today a single time and never fights the in-session
+    // tab-away day-memory (#614) afterwards. Done in composition (not a LaunchedEffect) so the stale restored day
+    // never paints for a frame. iOS uses plain @State (re-inits to 0 every launch) and needs no equivalent.
+    if (!todayDidSnapToTodayThisLaunch) {
+        todayDidSnapToTodayThisLaunch = true
+        if (selectedDayOffset != 0) selectedDayOffset = 0
+    }
     // Anchor offset-0 to the LOGICAL day (rolls at 04:00 local), so between midnight and 4am "Today"
     // still resolves to the prior calendar day's banked row instead of an empty new-calendar-day row
     // that blanks the dashboard (#144). Past offsets count back from this anchor. Presentation-only.

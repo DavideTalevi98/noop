@@ -185,7 +185,27 @@ fun InsightsScreen(vm: AppViewModel, onOpenInsightsHub: () -> Unit = {}) {
     var customQuestions by remember { mutableStateOf(loadCustomJournalQuestions(ctx)) }
     var hiddenQuestions by remember { mutableStateOf(loadHiddenJournalQuestions(ctx)) }
 
-    androidx.compose.runtime.LaunchedEffect(journalSeq, dayOffset) {
+    // #860 item 4: today's local calendar-day key. The journal day chips ("Today"/"Yesterday"/"Tomorrow")
+    // are relative to the CURRENT date, but the answers (`dayAnswers`) and the resolved key are derived from
+    // `LocalDate.now()` only inside the load effect below, which re-keys on `journalSeq`/`dayOffset`. A day
+    // can pass with the screen alive and no save (the app simply backgrounded overnight), leaving the
+    // previous day's answers pinned under "Today" instead of the new day starting blank. We re-stamp this on
+    // every lifecycle RESUME, and fold it into the load effect's keys, so the moment the date rolls over the
+    // journal reloads for the new day and prior answers move to their real date. iOS parity in InsightsView.
+    var currentDayKey by remember { mutableStateOf(LocalDate.now().toString()) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                val key = LocalDate.now().toString()
+                if (key != currentDayKey) currentDayKey = key
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(journalSeq, dayOffset, currentDayKey) {
         val imported = vm.repo.journal("my-whoop", "0000-01-01", "9999-12-31")
         val native = vm.repo.journal(JOURNAL_DEVICE_ID, "0000-01-01", "9999-12-31")
         val entries = mergeJournalEntries(imported, native)

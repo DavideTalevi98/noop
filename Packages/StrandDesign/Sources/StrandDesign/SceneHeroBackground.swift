@@ -135,7 +135,7 @@ public struct SceneScreenBackground: View {
         self.height = height
     }
 
-    /// Backdrop opacity — near-full so the scene reads VIVIDLY (by design). The dark hero CARD floating over it
+    /// Backdrop opacity, near-full so the scene reads VIVIDLY (by design). The dark hero CARD floating over it
     /// is what keeps the rings/data legible, so the scene itself doesn't need to be muted.
     private let imageOpacityCap: Double = 0.95
 

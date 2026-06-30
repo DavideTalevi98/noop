@@ -1032,7 +1032,7 @@ struct TodayView: View {
                     .padding(.vertical, NoopMetrics.space4)
                     .frame(maxWidth: .infinity)
                     // The dark hero CARD floats over the vivid day-scene so the rings + white numbers stay
-                    // crisp — the card does the contrast work, not a muted scene (2026-06-23).
+                    // crisp, the card does the contrast work, not a muted scene (2026-06-23).
                     .background(
                         RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
                             .fill(StrandPalette.surfaceBase.opacity(0.72))

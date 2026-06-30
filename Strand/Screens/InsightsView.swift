@@ -26,10 +26,19 @@ import WhoopStore
 // view only loads the series, shapes them, and presents. Empty state via ComingSoon
 // when there is no journal data to interrogate.
 
+/// `.task(id:)` key for the Insights journal load: the data-refresh sequence plus today's day-key, so the
+/// load re-runs both on a data change and on a calendar-day rollover (#860 item 4).
+private struct InsightsLoadKey: Equatable {
+    let seq: Int
+    let dayKey: String
+}
+
 struct InsightsView: View {
     @EnvironmentObject var repo: Repository
     /// Deep-link into the v5 "What moves you" hub (the n-of-1 ranked-effect + dose-response surface).
     @EnvironmentObject var router: NavRouter
+    /// #860 item 4: foreground signal for the day-rollover re-load (see `currentDayKey`).
+    @Environment(\.scenePhase) private var scenePhase
 
     // MARK: Selected outcome (segmented)
 
@@ -155,6 +164,15 @@ struct InsightsView: View {
     @State private var dayAnswers: [String: Bool] = [:]
     /// -1 = tomorrow (log ahead), 0 = today, 1 = yesterday (late logging).
     @State private var journalDayOffset = 0
+    /// #860 item 4: today's local calendar-day key, captured on appear and refreshed on foreground. The
+    /// journal day chips ("Today"/"Yesterday"/"Tomorrow") are relative to the CURRENT date, but the
+    /// answers (`dayAnswers`) and the resolved day key are derived from `Date()` only inside `load()`,
+    /// which re-runs on `repo.refreshSeq`. A day can pass with the screen alive and no data refresh (the
+    /// app simply backgrounded overnight), so without re-keying on this the previous day's answers stayed
+    /// pinned under "Today" instead of the new day starting blank. Folding it into the `.task(id:)` key
+    /// re-runs the load the moment the date rolls over, so "Today" always resolves to the live day and
+    /// prior answers move to their real date. Local CALENDAR day (matches the journal's `localDayKey`).
+    @State private var currentDayKey = Repository.localDayKey(Date())
 
     var body: some View {
         ScreenScaffold(title: "Insights", subtitle: "Interrogate what affects what.",
@@ -201,11 +219,28 @@ struct InsightsView: View {
                 }
             }
         }
-        .task(id: repo.refreshSeq) { await load() }
+        // #860 item 4: key on the data-refresh seq AND today's day-key, so the journal re-loads both on a
+        // data change and the moment the calendar day rolls over (driven by the foreground/appear refresh
+        // of `currentDayKey` below), so yesterday's answers leave "Today" and the new day starts fresh.
+        .task(id: InsightsLoadKey(seq: repo.refreshSeq, dayKey: currentDayKey)) { await load() }
         // Recompute the cached ranking only when the outcome selection changes.
         // (behaviours / outcomeByKey change only at load, which calls
         //  recomputeRanked() directly, so keying on `outcome` is sufficient.)
         .onChangeCompat(of: outcome) { _ in recomputeRanked() }
+        // Refresh the day anchor on appear and whenever the app returns to the foreground; if the date has
+        // advanced this bumps the `.task(id:)` key and the journal reloads for the new logical day (#860).
+        .onAppear { refreshCurrentDayKey() }
+        .onChangeCompat(of: scenePhase) { phase in
+            if phase == .active { refreshCurrentDayKey() }
+        }
+    }
+
+    /// Re-stamp `currentDayKey` to today's local calendar day. A no-op while the day is unchanged; when the
+    /// date has rolled over it flips the value, which re-keys the journal load so the chips' "Today" and the
+    /// answers behind them snap to the new day (#860 item 4).
+    private func refreshCurrentDayKey() {
+        let key = Repository.localDayKey(Date())
+        if key != currentDayKey { currentDayKey = key }
     }
 
     /// The deep-link row into the v5 "What moves you" hub.

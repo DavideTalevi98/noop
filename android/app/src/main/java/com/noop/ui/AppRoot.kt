@@ -202,6 +202,40 @@ private val drawerGroups: List<DrawerGroup> = listOf(
     ), defaultExpanded = false),
 )
 
+/** The headers open by default at first run, derived from [drawerGroups.defaultExpanded] (Insights +
+ *  Body), so the seed lives in one place and the persistence default can't drift from the UI default. */
+private fun defaultExpandedHeaders(): Set<String> =
+    drawerGroups.filter { it.defaultExpanded }.map { it.header }.toSet()
+
+/**
+ * Persisted open/closed state of the More page's collapsible groups (#860 item 2) - the Android twin of
+ * the iOS `MoreSectionPrefs`. The set of EXPANDED group headers is stored as one sorted comma-joined
+ * string under a single SharedPreferences key, encoded identically to iOS (same `more.expandedSections`
+ * suffix, same CSV-of-headers, same Insights+Body default) so the two platforms behave the same. An empty
+ * stored string is a valid state (everything collapsed), distinct from "never set" (which yields the seed).
+ */
+internal object MoreSectionPrefs {
+    const val KEY = "noop.more.expandedSections"
+
+    /** Read the expanded-header set; returns [default] when the key was never written (first run). */
+    fun read(prefs: android.content.SharedPreferences, default: Set<String>): Set<String> {
+        val raw = prefs.getString(KEY, null) ?: return default
+        return decode(raw)
+    }
+
+    /** Persist the expanded-header set as a sorted, comma-joined string. */
+    fun write(prefs: android.content.SharedPreferences, headers: Set<String>) {
+        prefs.edit().putString(KEY, encode(headers)).apply()
+    }
+
+    /** Encode the set of expanded headers to a sorted, comma-joined string. */
+    fun encode(headers: Set<String>): String = headers.sorted().joinToString(",")
+
+    /** Decode the stored string to a set of expanded headers; blank tokens dropped, empty string -> empty set. */
+    fun decode(raw: String): Set<String> =
+        raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+}
+
 /**
  * App shell: a single [Scaffold] with a floating [GlassBottomBar] (Today · Trends · Sleep · More)
  * driving one [NavHost], mirroring the iOS RootTabView. There is NO global toolbar and no nav drawer
@@ -458,10 +492,16 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
 @Composable
 private fun MoreScreen(onNavigate: (String) -> Unit) {
     // S2 parity: each group's open/closed state, seeded from `defaultExpanded` (Insights + Body open,
-    // Data + App collapsed) so the page reads shorter at rest without dropping a single row.
+    // Data + App collapsed). PERSISTED (#860 item 2): the user's open/closed choice must survive leaving
+    // and re-entering the More page (and relaunch), not reset to the seed every visit. Backed by
+    // [MoreSectionPrefs] (a CSV of expanded headers in SharedPreferences), mirroring the iOS
+    // @AppStorage("more.expandedSections"). Seeded ONCE from the stored value so first run still shows the
+    // Insights+Body default; every toggle writes through so the next visit reflects the saved state.
+    val context = androidx.compose.ui.platform.LocalContext.current
     val expanded = remember {
+        val stored = MoreSectionPrefs.read(NoopPrefs.of(context), defaultExpandedHeaders())
         androidx.compose.runtime.mutableStateMapOf<String, Boolean>().apply {
-            drawerGroups.forEach { put(it.header, it.defaultExpanded) }
+            drawerGroups.forEach { put(it.header, stored.contains(it.header)) }
         }
     }
     ScreenScaffold(
@@ -477,7 +517,13 @@ private fun MoreScreen(onNavigate: (String) -> Unit) {
                 MoreGroupHeader(
                     title = group.header,
                     expanded = isOpen,
-                    onToggle = { expanded[group.header] = !isOpen },
+                    onToggle = {
+                        expanded[group.header] = !isOpen
+                        // Persist the new open set so the choice survives leaving + re-entering the page
+                        // and relaunch (#860 item 2), mirroring the iOS @AppStorage write.
+                        val open = drawerGroups.map { it.header }.filter { expanded[it] == true }.toSet()
+                        MoreSectionPrefs.write(NoopPrefs.of(context), open)
+                    },
                 )
                 if (isOpen) {
                     NoopCard(padding = 0.dp) {

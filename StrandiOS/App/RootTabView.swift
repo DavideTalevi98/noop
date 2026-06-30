@@ -22,9 +22,12 @@ struct RootTabView: View {
     /// between tab roots, calm easing). Defaults to Today.
     @State private var selectedTab: Int = 0
     /// Which More-tab groups are expanded (S2). Insights + Body stay open at rest; Data + App collapse to
-    /// just their header until tapped, so the More list reads shorter without losing a single row. Keyed
-    /// by the section title so the set survives view rebuilds.
-    @State private var expandedMoreSections: Set<String> = ["Insights", "Body"]
+    /// just their header until tapped. Persisted (#860 item 2): the user's open/closed choice must SURVIVE
+    /// leaving and re-entering the More tab (and relaunch), not reset to the seed every visit. Backed by an
+    /// `@AppStorage` CSV string (keyed identically to the Android `MoreSectionPrefs`), bridged to a
+    /// `Set<String>` through `MoreSectionPrefs` so the section logic below is unchanged.
+    @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
+    private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
     init() {
         // Plain Titanium bar: pin the background to `surfaceBase` and clear the system
@@ -303,8 +306,11 @@ struct RootTabView: View {
             // the exact strandOverline styling and the card layout below stays identical to before.
             Button {
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) {
-                    if isOpen { expandedMoreSections.remove(title) }
-                    else { expandedMoreSections.insert(title) }
+                    // Persist the toggle via the CSV-backed @AppStorage so the choice survives leaving and
+                    // re-entering the More tab and relaunch (#860 item 2). MoreSectionPrefs owns encode/decode.
+                    var open = expandedMoreSections
+                    if isOpen { open.remove(title) } else { open.insert(title) }
+                    expandedMoreSectionsCSV = MoreSectionPrefs.encode(open)
                 }
             } label: {
                 HStack(spacing: 6) {
