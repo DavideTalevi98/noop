@@ -27,6 +27,14 @@ final class IntelligenceEngine: ObservableObject {
     @Published var computing = false
     @Published var note: String?
 
+    /// #899-A re-arm: a `force: true` recompute (a post-backfill rescore AppModel kicks off after a sync)
+    /// that arrives while an idle-tick pass already holds the `computing` lock would otherwise be SILENTLY
+    /// dropped, so a freshly-synced night intermittently never gets re-scored until the next cycle and Today
+    /// falls back to the last scored day. Instead the dropped force sets this flag; the in-flight pass's
+    /// `defer` re-invokes `analyzeRecent(force: true)` ONCE when it clears. A single re-arm (the flag is
+    /// cleared BEFORE the re-invoke) bounds it to one extra pass , no recompute storm.
+    private var pendingForcedRescore = false
+
     /// Who supplies the dashboard headline for a By-Day row. The By-Day card always shows NOOP's OWN
     /// on-device numbers, but the WHOLE-DASHBOARD value for the same day can come from an IMPORTED row
     /// that won the per-day merge (imports win field-by-field over computed , see Repository.mergeDaily).
@@ -268,7 +276,11 @@ final class IntelligenceEngine: ObservableObject {
     /// Personal baselines (HRV / resting HR) are folded from the imported history, so even the first
     /// live night can be scored against your norm.
     func analyzeRecent(maxDays: Int = 21, force: Bool = true) async {
-        guard !computing else { return }
+        // #899-A: a concurrent pass already holds the lock. A NON-forced idle tick is safe to drop (the
+        // in-flight pass already covers the same window). But a FORCED call is a real update path (a
+        // post-backfill rescore after a sync) , dropping it would leave a freshly-synced night unscored
+        // until the next cycle. Re-arm instead: flag it so the running pass's `defer` re-invokes once.
+        guard !computing else { if force { pendingForcedRescore = true }; return }
         guard let store = await repo.storeHandle() else { note = "No on-device store yet."; return }
         guard let hrvCfg = Baselines.metricCfg["hrv"],
               let rhrCfg = Baselines.metricCfg["resting_hr"],
@@ -293,7 +305,18 @@ final class IntelligenceEngine: ObservableObject {
         }
 
         computing = true
-        defer { computing = false }
+        // #899-A re-arm: clear the lock, then if a forced rescore was dropped while this pass held it,
+        // run it ONCE. The flag is cleared BEFORE the re-invoke (a single re-arm), so a forced call landing
+        // DURING the re-invoke re-arms it again but a quiet one does not , this can never recurse unbounded.
+        // The re-invoke is launched on a fresh `Task` because `defer` is synchronous; by the time it runs
+        // `computing` is already false, so its own `guard !computing` passes and it rescores the new data.
+        defer {
+            computing = false
+            if pendingForcedRescore {
+                pendingForcedRescore = false
+                Task { await self.analyzeRecent(force: true) }
+            }
+        }
 
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
                              age: Double(profile.age), sex: profile.sex,
