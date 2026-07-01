@@ -403,13 +403,22 @@ public struct OverviewHRChart: View {
         // Zoom/pan: active whenever a zoom binding is supplied (the Deep Timeline and the Today HR chart).
         // Every other call site passes the default `.constant(nil)`, so those static charts keep their exact
         // gestures. The modifier itself reads Reduce Motion, so the double-tap reset snaps when it's on.
+        // #829 follow-up: keyed on `zoomBounds` (the stable "a zoom binding was supplied" discriminator the
+        // init comment names, set once by the two zooming call sites, nil everywhere else), NOT on the live
+        // `zoomDomain`, which is nil until the user first zooms, so keying on it left the gestures unmounted
+        // in exactly the state where the first pinch has to land. `apply` below normalises a window that
+        // covers the full clamp bounds back to nil, so an un-zoomed drag (a pan of the whole day into
+        // itself) never flips the hint/Reset row into its "Zoomed in" state.
         .modifier(ZoomPanModifier(
-            isActive: zoomDomain != nil,
+            isActive: zoomBounds != nil,
             isZoomed: { zoomDomain != nil },
             current: { xDomain },
             bounds: zoomClampBounds,
             anchor: $gestureAnchorDomain,
-            apply: { newDomain in zoomDomain = newDomain },
+            apply: { newDomain in
+                zoomDomain = (newDomain.lowerBound <= zoomClampBounds.lowerBound
+                              && newDomain.upperBound >= zoomClampBounds.upperBound) ? nil : newDomain
+            },
             reset: { zoomDomain = nil },
             zoom: { base, scale, frac, bounds in Self.zoomed(base, scale: scale, anchorFraction: frac, bounds: bounds) },
             pan: { base, dx, plotWidth, bounds in

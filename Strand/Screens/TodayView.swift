@@ -34,6 +34,23 @@ private struct HeroRingRowWidthKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
+/// #829 follow-up: the Today HR chart's frame in the day-swipe gesture's coordinate space, published by a
+/// zero-impact background reader on the chart. The page-level day-swipe uses it as a MASK: a drag that
+/// STARTS inside this frame belongs to the chart's own pinch/pan/double-tap gestures, so a chart pan can
+/// never also flip the day underneath it. Both the gesture's locations and this frame are measured in the
+/// SAME named space, so plain rect containment is layout-direction safe (no leading/trailing or
+/// alignment-guide math to break under RTL). The frame is content-relative (the named space scrolls with
+/// the content), so scrolling never churns the preference; it only re-publishes on a real layout change.
+/// When the chart leaves the tree (the sparse-day empty card) no view emits, the value falls back to
+/// `.null`, and `.null.contains(_:)` is always false, so the mask disarms itself.
+private struct HRChartFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isNull { value = next }
+    }
+}
+
 // MARK: - Active-workout-in-progress indicator (Today)
 //
 // A "workout in progress" card the Today dashboard shows whenever a manual workout is active. Tapping it
@@ -294,6 +311,12 @@ struct TodayView: View {
     @State private var hrZoomDomain: ClosedRange<Date>?
     /// Reduce Motion gates the Today HR reset animation (the pinch/pan frames are never animated).
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // #829 follow-up: the HR chart's frame in the day-swipe coordinate space (see HRChartFrameKey). The
+    // day-swipe gesture skips any drag that STARTS inside it, giving the chart's pinch/pan/double-tap
+    // exclusive ownership of touches over the chart. `.null` (no chart on screen) contains nothing, so
+    // the swipe behaves exactly as before wherever the chart isn't.
+    @State private var hrChartFrame: CGRect = .null
 
     // Day navigation, 0 = today (the logical day), 1 = yesterday, … The DayNavBar chevrons and date
     // jump drive this, and every day-scoped read-out (hero synthesis, the Key-Metrics tiles, the HR
@@ -924,13 +947,24 @@ struct TodayView: View {
     @State private var dayNavHint: String? = nil
     private static let dayNavHints = ["Swipe", "Tap"]
 
+    /// #829 follow-up: the named coordinate space the day-swipe drag and the HR-chart frame reader share,
+    /// declared on the scaffold's content stack (the view the swipe gesture is attached to), so the mask's
+    /// containment check compares like with like. Content-relative, so it is scroll-position independent.
+    private static let daySwipeSpace = "todayDaySwipeSpace"
+
     /// #817 - the day-nav swipe. A horizontal drag flips the day: swipe right (toward today) to the newer
     /// day, swipe left to the older one. Gated so it only fires on a clearly-horizontal drag past a small
     /// threshold (vertical scrolling keeps winning), and clamped to `0 ... earliestDayOffset` so it can't
     /// reach a future day or step older than the earliest banked day. Mirrors the chevron bounds exactly.
+    /// #829 follow-up: measured in the named `daySwipeSpace` and MASKED over the HR chart, a drag that
+    /// starts inside the chart's frame belongs to the chart's pinch/pan/double-tap, never a day flip.
     private var daySwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 24)
+        DragGesture(minimumDistance: 24, coordinateSpace: .named(Self.daySwipeSpace))
             .onEnded { value in
+                // #829 follow-up: the chart owns every touch that starts within its frame (its pan is the
+                // same horizontal drag). startLocation and hrChartFrame share the daySwipeSpace coordinate
+                // space, so this containment check is layout-direction safe with no RTL special-casing.
+                guard !hrChartFrame.contains(value.startLocation) else { return }
                 let dx = value.translation.width
                 let dy = value.translation.height
                 // Horizontal-dominant and far enough to count as a deliberate day flip.
@@ -1244,9 +1278,15 @@ struct TodayView: View {
             // pass today or go older than the earliest banked day - the same bounds the chevrons use. A
             // height/width ratio gate keeps a near-vertical scroll from registering as a day swipe, and a
             // ~50pt minimum distance avoids stray taps flipping the day. minimumDistance lets the scroll view
-            // win short drags so vertical scrolling is unaffected.
+            // win short drags so vertical scrolling is unaffected. #829 follow-up: the gesture is masked over
+            // the HR chart's frame (see daySwipeGesture), the chart's own pinch/pan owns that region.
             .gesture(daySwipeGesture)
             #endif
+            // #829 follow-up: the shared space the day-swipe drag + the HR-chart frame reader both measure
+            // in (see daySwipeSpace). Declared on BOTH platforms so the chart's `.named` frame lookup is
+            // always defined; only iOS reads it (the swipe is iOS-only, macOS never consults the mask).
+            .coordinateSpace(name: Self.daySwipeSpace)
+            .onPreferenceChange(HRChartFrameKey.self) { hrChartFrame = $0 }
             // #755: mirror `LiveState.backfilling` into `liveBackfillingFlag` WITHOUT TodayView observing
             // LiveState (which would re-flood `body` ~1 Hz, see the top-of-type note). The bridge is a
             // zero-size leaf in `.background` (no layout impact) that owns the observation and pushes only
@@ -2528,6 +2568,17 @@ struct TodayView: View {
             // Effort / Rest open their scoring-guide section.
             Button { if let onRingTap { onRingTap() } else { guideSection = section } } label: {
                 HStack(spacing: 3) {
+                    // #937: an invisible LEADING twin of the trailing chevron. The word + chevron used to
+                    // centre as ONE block, which pushed the word visibly off the ring's axis (worst on short
+                    // labels like REST). Balancing the row with a same-sized clear chevron re-centres the
+                    // WORD itself under the ring while the real chevron stays visible on the trailing side.
+                    // opacity(0) keeps its layout slot (a conditional would remove it), and the HStack stays
+                    // plain leading-to-trailing content with no alignment-guide math, so LTR and RTL mirror
+                    // identically. Hidden from VoiceOver: it is a spacer, not content.
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .opacity(0)
+                        .accessibilityHidden(true)
                     // The CHARGE/EFFORT/REST hero label is localized: the catalog key is the natural-case
                     // domain word (Charge/Effort/Rest) and `.textCase(.uppercase)` does the uppercasing in
                     // the current locale, so a de/es/ru build shows the translated word, not the English id.
@@ -2768,6 +2819,17 @@ struct TodayView: View {
                         zoomBounds: hrAxis,
                         valueFormat: { "\(Int($0.rounded())) bpm" },
                         dateFormat: { Self.hrTimeFmt.string(from: $0) }
+                    )
+                    // #829 follow-up: publish the chart's frame (in the shared day-swipe space) so the
+                    // page-level day-swipe can mask itself over the chart, giving the pinch/pan/double-tap
+                    // exclusive ownership of touches that start here. Zero-impact reader: a clear
+                    // background adds no visual and no intrinsic size, and the frame is content-relative,
+                    // so scrolling never re-publishes it (mirrors the HeroRingRowWidthKey pattern).
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: HRChartFrameKey.self,
+                                                   value: geo.frame(in: .named(Self.daySwipeSpace)))
+                        }
                     )
                 } footer: {
                     ChartFooter([
