@@ -374,6 +374,7 @@ private fun AdvancedCard(vm: AppViewModel, is5MG: Boolean) {
     // Re-hosted Continuous-HRV toggle, bound to the SAME NoopPrefs key (noop.continuousHrv) the Settings
     // card uses, so flipping it here or there is one and the same setting (mirrors the iOS Test Centre).
     var continuousHrv by remember { mutableStateOf(NoopPrefs.continuousHrv(context)) }
+    var continuousHrvOvernight by remember { mutableStateOf(NoopPrefs.continuousHrvOvernight(context)) }
     var probes by remember { mutableStateOf(puffin.isEnabled) }
     var deepData by remember { mutableStateOf(puffin.isDeepDataEnabled) }
     var broadcast by remember { mutableStateOf(puffin.broadcastHr) }
@@ -391,6 +392,12 @@ private fun AdvancedCard(vm: AppViewModel, is5MG: Boolean) {
             // keep-stream-for-data, so the live capture follows the toggle from either screen.
             ToggleRowTC("Continuous HRV capture", continuousHrv) {
                 continuousHrv = it; vm.setContinuousHrv(it)
+            }
+            // Battery sub-option (mirrors Settings): limit the always-on stream to the overnight window.
+            if (continuousHrv) {
+                ToggleRowTC("  Limit to overnight (save battery)", continuousHrvOvernight) {
+                    continuousHrvOvernight = it; vm.setContinuousHrvOvernight(it)
+                }
             }
             if (is5MG) {
                 ToggleRowTC("Try WHOOP 5/MG protocol probes", probes) {

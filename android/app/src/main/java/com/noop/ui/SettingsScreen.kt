@@ -365,6 +365,9 @@ fun SettingsScreen(vm: AppViewModel, onOpenTestCentre: () -> Unit = {}) {
     // "Continuous HRV capture" — hold the dense realtime stream armed 24/7 (better overnight HRV) at the
     // cost of more battery. Default OFF; only does anything with background connection on. Local mirror.
     var continuousHrv by remember { mutableStateOf(NoopPrefs.continuousHrv(context)) }
+    // "Limit to overnight" sub-option: hold the dense stream only inside the sleep window (~half the
+    // realtime radio + strap drain) instead of 24/7. Default OFF = original always-on behaviour.
+    var continuousHrvOvernight by remember { mutableStateOf(NoopPrefs.continuousHrvOvernight(context)) }
 
     // "Debug logging" — mirror the strap log to logcat (adb). Default OFF so normal users don't.
     var debugLogging by remember { mutableStateOf(NoopPrefs.debugLogging(context)) }
@@ -1079,6 +1082,44 @@ fun SettingsScreen(vm: AppViewModel, onOpenTestCentre: () -> Unit = {}) {
                             uncheckedBorderColor = Palette.hairline,
                         ),
                     )
+                }
+
+                // Battery sub-option, only meaningful while capture is on: limit the always-on stream to the
+                // overnight sleep window (~half the realtime radio + strap drain) while keeping the overnight
+                // HRV the feature is for. Default OFF so an existing "on" user stays always-on.
+                if (continuousHrv) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Limit to overnight",
+                                style = NoopType.subhead,
+                                color = Palette.textPrimary,
+                            )
+                            Text(
+                                "Only holds the stream open during the night (about 9:30pm–9:30am), when it matters most for HRV, recovery and sleep. Saves roughly half the extra battery of leaving it on all day.",
+                                style = NoopType.footnote,
+                                color = Palette.textTertiary,
+                            )
+                        }
+                        Switch(
+                            checked = continuousHrvOvernight,
+                            onCheckedChange = {
+                                continuousHrvOvernight = it
+                                vm.setContinuousHrvOvernight(it)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Palette.surfaceBase,
+                                checkedTrackColor = Palette.accent,
+                                uncheckedThumbColor = Palette.textSecondary,
+                                uncheckedTrackColor = Palette.surfaceInset,
+                                uncheckedBorderColor = Palette.hairline,
+                            ),
+                        )
+                    }
                 }
 
                 // Diagnostics: "Debug logging" mirrors the strap log to logcat (adb). Default OFF — a

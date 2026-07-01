@@ -172,8 +172,14 @@ object NoopPrefs {
     /** "Continuous HRV capture", when on (AND background connection is on), NOOP holds the dense
      *  realtime HR stream armed even with no Live screen open, so the strap banks beat-to-beat R-R 24/7
      *  for far better overnight HRV/recovery/sleep. Uses more battery (continuous HR streaming). Default
-     *  OFF. Drives [com.noop.ble.WhoopBleClient.setKeepStreamForData] via [AppViewModel]. */
+     *  OFF. Drives [com.noop.ble.WhoopBleClient.setContinuousCaptureMode] via [AppViewModel]. */
     const val KEY_CONTINUOUS_HRV = "noop.continuousHrv"
+
+    /** "Limit to overnight", a sub-option of [KEY_CONTINUOUS_HRV]: when on, the dense realtime stream is
+     *  held open only inside the sleep window (see [com.noop.ble.ContinuousCapture]) instead of 24/7, which
+     *  ~halves the realtime radio + strap-battery cost while keeping the overnight HRV the feature is for.
+     *  Default OFF so an existing "on" user keeps the original always-on behaviour (no silent regression). */
+    const val KEY_CONTINUOUS_HRV_OVERNIGHT = "noop.continuousHrvOvernight"
 
     /** The calendar day (yyyy-MM-dd) on which the morning-journal nudge was last shown, keeps the
      *  Sleep screen's "Good morning" sheet to at most once per day. */
@@ -220,6 +226,25 @@ object NoopPrefs {
 
     fun setContinuousHrv(context: Context, enabled: Boolean) {
         of(context).edit().putBoolean(KEY_CONTINUOUS_HRV, enabled).apply()
+    }
+
+    /** Whether continuous capture is limited to the overnight sleep window (sub-option of
+     *  [continuousHrv]). Default false = the original always-on behaviour. */
+    fun continuousHrvOvernight(context: Context): Boolean =
+        of(context).getBoolean(KEY_CONTINUOUS_HRV_OVERNIGHT, false)
+
+    fun setContinuousHrvOvernight(context: Context, enabled: Boolean) {
+        of(context).edit().putBoolean(KEY_CONTINUOUS_HRV_OVERNIGHT, enabled).apply()
+    }
+
+    /** The persisted continuous-capture MODE, composed from the two booleans: OFF when capture is off,
+     *  else OVERNIGHT / ALWAYS per the sub-option. Two composable booleans give the three states with no
+     *  key migration (an existing "on" user reads ALWAYS). Not yet gated on [backgroundConnection] — the
+     *  caller ([AppViewModel]) applies that gate. */
+    fun continuousCaptureMode(context: Context): com.noop.ble.ContinuousCaptureMode = when {
+        !continuousHrv(context) -> com.noop.ble.ContinuousCaptureMode.OFF
+        continuousHrvOvernight(context) -> com.noop.ble.ContinuousCaptureMode.OVERNIGHT
+        else -> com.noop.ble.ContinuousCaptureMode.ALWAYS
     }
 
     /** Whether the strap log is mirrored to logcat. Default false (normal users don't log to adb). */

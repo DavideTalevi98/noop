@@ -1308,11 +1308,11 @@ class WhoopBleClient(
     /** True while a Live/Health screen is on-screen and wants the realtime HR stream (ref-counted in
      *  [com.noop.ui.AppViewModel]). One of the two inputs to [wantsRealtime]. */
     @Volatile private var screenWantsRealtime = false
-    /** True while the "Continuous HRV capture" preference wants the realtime stream held open even with
-     *  no Live screen visible, so the strap banks dense beat-to-beat R-R 24/7 (better overnight
-     *  HRV/recovery/sleep). The second input to [wantsRealtime]. Default off; set by
-     *  [setKeepStreamForData]. Mirrors the Swift `keepRealtimeForData`. */
-    @Volatile private var keepStreamForData = false
+    /** How the "Continuous HRV capture" preference wants the realtime stream held open with no Live screen
+     *  visible, so the strap banks dense beat-to-beat R-R (better overnight HRV/recovery/sleep). The second
+     *  input to [wantsRealtime]. Default OFF; set by [setContinuousCaptureMode]. OVERNIGHT limits the stream
+     *  to the sleep window to save battery. Mirrors the Swift `continuousMode`. */
+    @Volatile private var continuousMode = ContinuousCaptureMode.OFF
     /** Derived want: the realtime stream should be armed while EITHER a screen wants it OR the
      *  continuous-capture preference wants it. The keep-alive re-arms it so it can't lapse, and the
      *  post-bond branch arms it on connect. Recomputed only inside [reconcileRealtime]. */
@@ -3363,6 +3363,12 @@ class WhoopBleClient(
                     teardownAfterGattFailure()
                 }
             } else {
+                // OVERNIGHT continuous-capture: re-derive the want each tick so the window edge arms (at
+                // 21:30) / disarms (at 09:30) the stream on its own, with no screen change. Cheap on a
+                // healthy link — reconcileRealtime only sends a TOGGLE on an actual false<->true edge, and
+                // only OVERNIGHT is time-varying (OFF/ALWAYS need no per-tick re-derive). Runs for both
+                // families before the WHOOP4-only block below.
+                if (continuousMode == ContinuousCaptureMode.OVERNIGHT) reconcileRealtime()
                 // Recover a silently-dropped subscription once the stream has gone quiet (any family) —
                 // but only ONCE per quiet episode. Re-subscribing all notify chars every 30s tick floods
                 // descriptor writes that collide with the command queue on a slow stack (#77); a single
@@ -3418,24 +3424,30 @@ class WhoopBleClient(
     }
 
     /** The Live screen no longer needs realtime HR; clear its want and reconcile. The stream stays armed
-     *  if the continuous-capture preference ([keepStreamForData]) still wants it. Port of
+     *  if the continuous-capture preference ([continuousMode]) still wants it. Port of
      *  `BLEManager.stopRealtime`. */
     fun stopRealtime() {
         screenWantsRealtime = false
         reconcileRealtime()
     }
 
-    /** The "Continuous HRV capture" preference flipped: hold the realtime stream open with no Live screen
-     *  visible (true) or release it (false), then reconcile. Wired from [com.noop.ui.AppViewModel] and
-     *  gated there on the background-connection preference. Mirrors the Swift `setKeepRealtimeForData`. */
-    fun setKeepStreamForData(keep: Boolean) {
-        keepStreamForData = keep
+    /** The "Continuous HRV capture" preference changed: hold the realtime stream open with no Live screen
+     *  visible per [mode] (OFF/OVERNIGHT/ALWAYS), then reconcile. Wired from [com.noop.ui.AppViewModel] and
+     *  gated there on the background-connection preference. Mirrors the Swift `setContinuousCaptureMode`. */
+    fun setContinuousCaptureMode(mode: ContinuousCaptureMode) {
+        continuousMode = mode
         reconcileRealtime()
+    }
+
+    /** Local wall-clock minutes-of-day (0..1439) for the OVERNIGHT window test in [reconcileRealtime]. */
+    private fun nowMinuteOfDay(): Int {
+        val cal = java.util.Calendar.getInstance()
+        return cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
     }
 
     /**
      * Single reconciler for the realtime-HR stream. The stream should be armed while EITHER a screen
-     * wants it ([screenWantsRealtime]) OR the continuous-capture preference wants it ([keepStreamForData]).
+     * wants it ([screenWantsRealtime]) OR the continuous-capture preference wants it ([continuousMode]).
      * We arm (TOGGLE_REALTIME_HR 1) / disarm (TOGGLE_REALTIME_HR 0) ONLY on the false↔true edge of that
      * derived want — so a Live screen closing while the preference still wants it does NOT disarm, and
      * turning the preference off with no screen open DOES disarm. The toggle only reaches the strap once
@@ -3443,7 +3455,8 @@ class WhoopBleClient(
      * the want is remembered and the post-bond branch arms it. Port of `BLEManager.reconcileRealtime`.
      */
     private fun reconcileRealtime() {
-        val want = screenWantsRealtime || keepStreamForData
+        val want = screenWantsRealtime ||
+            ContinuousCapture.wantsStreamNow(continuousMode, nowMinuteOfDay())
         wantsRealtime = want   // the keep-alive + post-bond arm-on-connect read this derived value
         if (want == realtimeArmed) return                          // no edge — nothing to send
         if (connectedFamily != DeviceFamily.WHOOP4 && !_state.value.bonded) return   // can't reach the strap yet
@@ -4541,7 +4554,7 @@ class WhoopBleClient(
         lastMtuAtMs = 0L
         // The strap forgets the realtime-HR toggle across a disconnect; the post-bond branch re-arms it
         // from [wantsRealtime]. Clear only the "what we last sent" flag — the screen/preference WANTS
-        // ([screenWantsRealtime]/[keepStreamForData]/[wantsRealtime]) are intent and must survive a
+        // ([screenWantsRealtime]/[continuousMode]/[wantsRealtime]) are intent and must survive a
         // reconnect so the stream comes back automatically.
         realtimeArmed = false
 

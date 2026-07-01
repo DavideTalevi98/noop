@@ -33,11 +33,28 @@ enum PuffinExperiment {
     /// Opt-in "Continuous HRV capture": hold the dense realtime HR stream armed even with no Live screen
     /// open, so the strap banks beat-to-beat R-R intervals 24/7 for far better overnight HRV/recovery/
     /// sleep (vs the sparse history offload). Uses more battery (continuous HR streaming). Default OFF;
-    /// applied on launch + each (re)bond and driven by `BLEManager.setKeepRealtimeForData(_:)`. Mirrors
+    /// applied on launch + each (re)bond and driven by `BLEManager.setContinuousCaptureMode(_:)`. Mirrors
     /// the Android `NoopPrefs.KEY_CONTINUOUS_HRV`. Works on WHOOP 4 and 5/MG (both emit 0x2A37 R-R).
     static let keepRealtimeForDataKey = "noopContinuousHrv"
 
     static var keepRealtimeForDataEnabled: Bool { UserDefaults.standard.bool(forKey: keepRealtimeForDataKey) }
+
+    /// "Limit to overnight", a sub-option of `keepRealtimeForDataKey`: when on, the dense realtime stream is
+    /// held open only inside the sleep window (see `ContinuousCapture`) instead of 24/7, which ~halves the
+    /// realtime radio + strap-battery cost while keeping the overnight HRV the feature is for. Default OFF so
+    /// an existing "on" user keeps the original always-on behaviour. Mirrors the Android
+    /// `NoopPrefs.KEY_CONTINUOUS_HRV_OVERNIGHT`.
+    static let continuousHrvOvernightKey = "noopContinuousHrvOvernight"
+
+    static var continuousHrvOvernightEnabled: Bool { UserDefaults.standard.bool(forKey: continuousHrvOvernightKey) }
+
+    /// The continuous-capture MODE, composed from the two booleans: `.off` when capture is off, else
+    /// `.overnight` / `.always` per the sub-option. Two composable booleans give the three states with no
+    /// key migration (an existing "on" user reads `.always`). Mirrors `NoopPrefs.continuousCaptureMode`.
+    static var continuousCaptureMode: ContinuousCaptureMode {
+        guard keepRealtimeForDataEnabled else { return .off }
+        return continuousHrvOvernightEnabled ? .overnight : .always
+    }
 
     /// Opt-in "Experimental sleep staging (V2)": re-stage each detected night with `SleepStagerV2` — a
     /// transparent cardiorespiratory recipe (reimplemented from contributor PR #600) that recovers deep/REM

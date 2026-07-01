@@ -430,11 +430,11 @@ public final class BLEManager: NSObject, ObservableObject {
     /// True while a Live/Health screen is on-screen and wants the realtime stream. One of the two
     /// inputs to `wantsRealtime`. Driven by `startRealtime()` / `stopRealtime()`.
     private var screenWantsRealtime = false
-    /// True while the "Continuous HRV capture" preference wants the realtime stream held open even with
-    /// no Live screen visible, so the strap banks dense beat-to-beat R-R 24/7 (better overnight
-    /// HRV/recovery/sleep). The second input to `wantsRealtime`. Default off; set by
-    /// `setKeepRealtimeForData(_:)`. Mirrors the Android `keepStreamForData`.
-    private var keepRealtimeForData = false
+    /// How the "Continuous HRV capture" preference wants the realtime stream held open with no Live screen
+    /// visible, so the strap banks dense beat-to-beat R-R (better overnight HRV/recovery/sleep). The second
+    /// input to `wantsRealtime`. Default `.off`; set by `setContinuousCaptureMode(_:)`. `.overnight` limits
+    /// the stream to the sleep window to save battery. Mirrors the Android `continuousMode`.
+    private var continuousMode: ContinuousCaptureMode = .off
     /// Derived want: the (heavy) realtime stream should be armed while EITHER a screen wants it OR the
     /// continuous-capture preference wants it. Keep-alive re-arms it; the post-bond branch arms it on
     /// connect. Recomputed only inside `reconcileRealtime()`.
@@ -1703,24 +1703,31 @@ public final class BLEManager: NSObject, ObservableObject {
         reconcileRealtime()
     }
 
-    /// The "Continuous HRV capture" preference flipped: hold the realtime stream open with no Live screen
-    /// visible (true) or release it (false), then reconcile. Driven from the app model. Mirrors the
-    /// Android `setKeepStreamForData`.
-    public func setKeepRealtimeForData(_ keep: Bool) {
-        keepRealtimeForData = keep
+    /// The "Continuous HRV capture" preference changed: hold the realtime stream open with no Live screen
+    /// visible per `mode` (.off/.overnight/.always), then reconcile. Driven from the app model. Mirrors the
+    /// Android `setContinuousCaptureMode`.
+    public func setContinuousCaptureMode(_ mode: ContinuousCaptureMode) {
+        continuousMode = mode
         reconcileRealtime()
+    }
+
+    /// Local wall-clock minutes-of-day (0..1439) for the `.overnight` window test in `reconcileRealtime`.
+    private func nowMinuteOfDay() -> Int {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        return (c.hour ?? 0) * 60 + (c.minute ?? 0)
     }
 
     /// Single reconciler for the realtime-HR TOGGLE. The stream should be armed while EITHER a screen
     /// wants it (`screenWantsRealtime`) OR the continuous-capture preference wants it
-    /// (`keepRealtimeForData`). We arm (TOGGLE_REALTIME_HR 1) / disarm (TOGGLE_REALTIME_HR 0) ONLY on the
+    /// (`continuousMode`). We arm (TOGGLE_REALTIME_HR 1) / disarm (TOGGLE_REALTIME_HR 0) ONLY on the
     /// false↔true edge of that derived want — so a Live screen closing while the preference still wants
     /// it does NOT disarm, and turning the preference off with no screen open DOES disarm. The toggle only
     /// reaches the strap once it's a WHOOP4 (custom channels open immediately) or a bonded 5/MG (puffin
     /// framing); otherwise the want is remembered and the post-bond branch arms it. Mirrors the Android
     /// `reconcileRealtime`.
     private func reconcileRealtime() {
-        let want = screenWantsRealtime || keepRealtimeForData
+        let want = screenWantsRealtime
+            || ContinuousCapture.wantsStreamNow(continuousMode, nowMinuteOfDay: nowMinuteOfDay())
         wantsRealtime = want   // keep-alive + post-bond arm-on-connect read this derived value
         guard want != realtimeArmed else { return }                      // no edge — nothing to send
         guard selectedModel.deviceFamily == .whoop4 || state.bonded else { return }   // can't reach the strap yet
@@ -1924,6 +1931,11 @@ public final class BLEManager: NSObject, ObservableObject {
             return
         }
         guard !backfilling else { return }            // never poke the strap mid-offload
+        // OVERNIGHT continuous-capture: re-derive the want each tick so the window edge arms (at 21:30) /
+        // disarms (at 09:30) the stream on its own, with no screen change. Cheap on a healthy link —
+        // reconcileRealtime only sends a TOGGLE on an actual false<->true edge, and only .overnight is
+        // time-varying. Runs for both families, before the WHOOP4-only pings below.
+        if continuousMode == .overnight { reconcileRealtime() }
         // The command pings below are WHOOP4-framed; a 5/MG link drops them at the send() guard, so
         // skip them for 5/MG (it keeps the experimental strap log clean — re-subscribe + the 120s
         // bounce above are what keep a 5/MG link healthy).
@@ -2470,7 +2482,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         whoop5RealtimeArmed = false
         // The strap forgets the realtime-HR toggle across a disconnect; the post-bond branch re-arms it
         // from `wantsRealtime`. Clear only the "what we last sent" flag — `screenWantsRealtime` /
-        // `keepRealtimeForData` (and thus `wantsRealtime`) are intent and must survive a reconnect so the
+        // `continuousMode` (and thus `wantsRealtime`) are intent and must survive a reconnect so the
         // stream comes back automatically.
         realtimeArmed = false
         whoop5SessionStarted = false

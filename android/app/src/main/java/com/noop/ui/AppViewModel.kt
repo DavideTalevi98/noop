@@ -800,7 +800,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // stream armed once bonded (the reconciler arms it post-bond). Only effective with background
         // connection on — without it there's nothing keeping the link up to stream over, so a continuous
         // want would be meaningless. Pushed BEFORE autoReconnectOnLaunch so a launch reconnect arms it.
-        ble.setKeepStreamForData(continuousHrvEffective())
+        ble.setContinuousCaptureMode(continuousCaptureModeEffective())
 
         // Reconnect to the strap we last bonded to, so the user doesn't have to tap Connect after an
         // app update / restart (#67). Self-gates on the keep-connected pref + a saved strap + permission.
@@ -810,8 +810,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The effective continuous-HRV want: the user's "Continuous HRV capture" preference AND
      *  "Keep connected in the background" — the latter is what holds the link up for the stream to ride,
      *  so continuous capture is meaningless without it. */
-    private fun continuousHrvEffective(): Boolean =
-        NoopPrefs.continuousHrv(appContext) && NoopPrefs.backgroundConnection(appContext)
+    private fun continuousCaptureModeEffective(): com.noop.ble.ContinuousCaptureMode =
+        if (!NoopPrefs.backgroundConnection(appContext)) com.noop.ble.ContinuousCaptureMode.OFF
+        else NoopPrefs.continuousCaptureMode(appContext)
 
     /**
      * On launch, reconnect DIRECTLY to the strap we last bonded to (no scan), so the connection
@@ -1434,7 +1435,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // Continuous HRV capture is gated on background connection (it has nothing to stream over without
         // it), so a change here re-reconciles the keep-stream want: turning background off disarms the
         // continuous stream when no Live screen wants it; turning it back on re-arms it if the pref is on.
-        ble.setKeepStreamForData(continuousHrvEffective())
+        ble.setContinuousCaptureMode(continuousCaptureModeEffective())
     }
 
     /**
@@ -1446,7 +1447,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun setContinuousHrv(enabled: Boolean) {
         NoopPrefs.setContinuousHrv(appContext, enabled)
-        ble.setKeepStreamForData(continuousHrvEffective())
+        ble.setContinuousCaptureMode(continuousCaptureModeEffective())
+    }
+
+    /**
+     * Flip "Limit to overnight" (the battery sub-option of Continuous HRV capture). Persists it and pushes
+     * the recomposed effective mode so it takes effect immediately: switching to overnight while the stream
+     * is armed mid-day disarms it until the window opens; switching back to always re-arms it now.
+     */
+    fun setContinuousHrvOvernight(enabled: Boolean) {
+        NoopPrefs.setContinuousHrvOvernight(appContext, enabled)
+        ble.setContinuousCaptureMode(continuousCaptureModeEffective())
     }
 
     /**

@@ -45,6 +45,9 @@ struct SettingsView: View {
     /// the strap banks beat-to-beat R-R for better overnight HRV/recovery/sleep, at a battery cost.
     /// See [PuffinExperiment.keepRealtimeForDataKey].
     @AppStorage(PuffinExperiment.keepRealtimeForDataKey) private var continuousHrvEnabled = false
+    /// Battery sub-option of `continuousHrvEnabled`: limit the always-on stream to the overnight window.
+    /// See [PuffinExperiment.continuousHrvOvernightKey].
+    @AppStorage(PuffinExperiment.continuousHrvOvernightKey) private var continuousHrvOvernight = false
 
     /// Opt-in "Experimental sleep staging (V2)" (off by default). When on, detected nights are re-staged with
     /// `SleepStagerV2` (the transparent cardiorespiratory recipe) instead of the default V1 stager. Read at
@@ -768,11 +771,35 @@ struct SettingsView: View {
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
-                .onChangeCompat(of: continuousHrvEnabled) { on in model.ble.setKeepRealtimeForData(on) }
+                .onChangeCompat(of: continuousHrvEnabled) { _ in
+                    model.ble.setContinuousCaptureMode(PuffinExperiment.continuousCaptureMode)
+                }
                 Text("Keeps the detailed beat-to-beat heart-rate stream running all day and night, not just while a live screen is open, so NOOP captures much more for overnight HRV, recovery and sleep. Uses more battery — your strap streams heart rate continuously while connected.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Battery sub-option, only meaningful while capture is on: limit the always-on stream to the
+                // overnight sleep window (~half the realtime radio + strap drain) while keeping the overnight
+                // HRV the feature is for. Default OFF so an existing "on" user stays always-on.
+                if continuousHrvEnabled {
+                    Toggle(isOn: $continuousHrvOvernight) {
+                        Text("Limit to overnight")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(StrandPalette.accent)
+                    .padding(.leading, 16)
+                    .onChangeCompat(of: continuousHrvOvernight) { _ in
+                        model.ble.setContinuousCaptureMode(PuffinExperiment.continuousCaptureMode)
+                    }
+                    Text("Only holds the stream open during the night (about 9:30pm–9:30am), when it matters most for HRV, recovery and sleep. Saves roughly half the extra battery of leaving it on all day.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 16)
+                }
 
                 // MARK: Strap name — rename the WHOOP 4.0's BLE advertising name (Harvard command set).
                 if live.connected && selectedWhoopModelRaw == WhoopModel.whoop4.rawValue {

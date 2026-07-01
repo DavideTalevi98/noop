@@ -35,6 +35,7 @@ struct TestCentreView: View {
     // spec section 10), so toggling here and there is one and the same setting.
     @AppStorage(PuffinExperiment.experimentalSleepV2Key) private var experimentalSleepV2Enabled = false
     @AppStorage(PuffinExperiment.keepRealtimeForDataKey) private var continuousHrvEnabled = false
+    @AppStorage(PuffinExperiment.continuousHrvOvernightKey) private var continuousHrvOvernight = false
     @AppStorage(PuffinExperiment.defaultsKey) private var puffinExperiments = false
     @AppStorage(PuffinExperiment.deepDataKey) private var deepDataEnabled = false
     @AppStorage(PuffinExperiment.broadcastHrKey) private var broadcastHrEnabled = false
@@ -244,7 +245,21 @@ struct TestCentreView: View {
                         .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch).tint(StrandPalette.accent)
-                .onChangeCompat(of: continuousHrvEnabled) { on in model.ble.setKeepRealtimeForData(on) }
+                .onChangeCompat(of: continuousHrvEnabled) { _ in
+                    model.ble.setContinuousCaptureMode(PuffinExperiment.continuousCaptureMode)
+                }
+                // Battery sub-option (mirrors Settings): limit the always-on stream to the overnight window.
+                if continuousHrvEnabled {
+                    Toggle(isOn: $continuousHrvOvernight) {
+                        Text("Limit to overnight (save battery)")
+                            .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
+                    }
+                    .toggleStyle(.switch).tint(StrandPalette.accent)
+                    .padding(.leading, 16)
+                    .onChangeCompat(of: continuousHrvOvernight) { _ in
+                        model.ble.setContinuousCaptureMode(PuffinExperiment.continuousCaptureMode)
+                    }
+                }
 
                 // 5/MG-only probes, hidden off a 4.0 strap (the #22 gate, same as SettingsView).
                 if is5MG {
