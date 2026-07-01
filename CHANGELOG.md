@@ -17,6 +17,15 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 7.7.1: bug fixes (Effort, the widget's day, and Oura reconnect) (all platforms)
+
+- **Effort stops reading zero after a strap swap.** If a band was re-added through the device manager, the Today heart-rate curve and Effort could come back empty. They now read whichever strap is actually paired.
+- **The widget shows today, not yesterday.** Around midnight the home-screen widget, watch face, Live Activity and lock-screen notification could hang on the previous day. They all roll to the new day now.
+- **Oura rings reconnect on their own.** After a dropout or an app restart the ring comes back by itself, and it no longer loops a pairing it cannot finish and drains the battery.
+- **A battery estimate that learns faster.** Days remaining now personalises from recent discharge without waiting for a full charge first, which helps on a WHOOP 5.0 that rarely tops up to 100 percent.
+- **Restore finds backups you named yourself.** The restore list now includes backup files with just a date in the name.
+- **Smaller fixes.** The Add-a-device list scrolls at large text sizes, the Today tiles line up evenly, and Android Bluetooth is a little steadier.
+
 ## 7.7.0: smoother (especially on Mac), an Oura live-HR fix, and a big pile of improvements (all platforms)
 
 - **Smoother, especially on Mac.** The long freeze some people hit when opening the app or the Insights tab should be gone, and after a sync Charge and Rest now catch up to the latest night instead of sometimes sticking on an older one.

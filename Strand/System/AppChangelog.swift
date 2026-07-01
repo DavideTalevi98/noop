@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "7.7.0"
+    static let currentVersion = "7.7.1"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,18 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "7.7.1",
+            title: "Bug fixes: Effort, the widget's day, and Oura reconnect",
+            date: "July 2026",
+            items: [
+                "**Effort stops reading zero after you swap straps.** If you re-added your band through the device manager, the Today heart-rate curve and your Effort could come back empty. They now read whichever strap you actually have paired, so your day fills in again.",
+                "**The widget shows today, not yesterday.** Around midnight the home-screen widget, watch face, Live Activity and lock-screen notification could hang on the previous day. They all move to the new day on their own now.",
+                "**Your Oura ring reconnects by itself.** After a dropout or an app restart the ring comes back on its own, the same as a WHOOP strap, and it no longer keeps retrying a pairing it cannot finish and draining the battery.",
+                "**A battery estimate that learns faster.** Days remaining now personalises from your own discharge without waiting for a full charge first, which helps on a WHOOP 5.0 that rarely tops up to 100 percent.",
+                "**Restore finds backups you named yourself.** The restore list now includes backup files that have just a date in the filename.",
+                "**A few smaller fixes.** The Add-a-device list scrolls at large text sizes, the Today tiles line up at an even height, and Bluetooth on Android is a little steadier.",
+            ]),
         Release(
             version: "7.7.0",
             title: "Smoother, an Oura live-HR fix, and a big pile of improvements",
