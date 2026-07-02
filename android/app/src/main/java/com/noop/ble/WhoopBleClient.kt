@@ -2958,11 +2958,15 @@ class WhoopBleClient(
                   // the whole app — the exact chain the redactPii bug escaped through. Wrap the whole
                   // body so a bad frame drops ONE frame and the link stays up. (log() is itself total.)
                   try {
-                    noteWhoop5R22Telemetry(frame, backfilling && isOffloadFrame(frame, connectedFamily))  // #174
+                    // Compute the offload-frame flag ONCE — it feeds both the R22 telemetry note and
+                    // handleFrame's replayedOffload gate, so evaluating it twice bounds-checked + indexed
+                    // every offloaded frame for nothing. (The Swift 5/MG inbound loop already hoists this.)
+                    val offloadFrame = backfilling && isOffloadFrame(frame, connectedFamily)
+                    noteWhoop5R22Telemetry(frame, offloadFrame)  // #174
                     // A frame replayed as part of the historical offload (type 47/48/… during a backfill)
                     // must not drive LIVE-only state (the charging pill). Mirrors iOS, where the offload
                     // path skips the live router entirely. (PR #568 reimpl)
-                    handleFrame(frame, replayedOffload = backfilling && isOffloadFrame(frame, connectedFamily))
+                    handleFrame(frame, replayedOffload = offloadFrame)
 
                     // Capture the strap's newest stored record from a GET_DATA_RANGE reply, feeding
                     // the liveness watchdog. The response command byte is family-dependent: @6 on
