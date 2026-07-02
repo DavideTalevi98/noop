@@ -438,6 +438,23 @@ struct MetricDetailView: View {
         return .all
     }
 
+    /// The ranges worth OFFERING as chips: WEEK always, and each longer range only once history extends
+    /// past the next-shorter window (so it reveals more than the smaller one). A few days of data → [.week]
+    /// alone, which suppresses the toggle; longer ranges unlock as data accrues. This is distinct from (and
+    /// composes with) `effectiveRange`: that WIDENS a selected-but-empty window; this HIDES windows longer
+    /// than the whole history, which would otherwise show a chart identical to a shorter range. Twin of the
+    /// Android `availableVitalRanges`.
+    private var availableRanges: [ExploreRange] {
+        let order: [ExploreRange] = [.week, .month, .quarter, .half, .year, .all]
+        guard series.count >= 2,
+              let first = parseDay(series.first!.day), let last = parseDay(series.last!.day)
+        else { return [order[0]] }
+        let spanDays = Int(last.timeIntervalSince(first) / 86_400)
+        return order.enumerated()
+            .filter { (i, _) in i == 0 || (order[i - 1].days.map { spanDays > $0 } ?? false) }
+            .map { $0.element }
+    }
+
     /// The window immediately preceding the active one (equal length, by day count).
     private func previousWindow(effectiveRange: ExploreRange,
                                 windowed: [(day: String, value: Double)]) -> [(day: String, value: Double)] {
@@ -556,7 +573,10 @@ struct MetricDetailView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                     }
                     Spacer()
-                    SegmentedPillControl(ExploreRange.allCases, selection: $range) { $0.label }
+                    // Hide the range toggle until more than one window is meaningful (see availableRanges).
+                    if availableRanges.count > 1 {
+                        SegmentedPillControl(availableRanges, selection: $range) { $0.label }
+                    }
                 }
 
                 // The headline read-out: a ring gauge for 0–100 scores, else a big number.
@@ -630,7 +650,10 @@ struct MetricDetailView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 Spacer()
-                SegmentedPillControl(ExploreRange.allCases, selection: $range) { $0.label }
+                // Hide the range toggle until more than one window is meaningful (see availableRanges).
+                if availableRanges.count > 1 {
+                    SegmentedPillControl(availableRanges, selection: $range) { $0.label }
+                }
             }
             Text(caption)
                 .font(StrandFont.footnote)

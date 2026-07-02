@@ -1673,7 +1673,15 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
             return@ScreenScaffold
         }
 
-        val filteredPoints = remember(detail, range) { filterVitalPoints(detail.points, range) }
+        // Only offer ranges that reveal more than the next-shorter one; they unlock as history builds.
+        // With ~a week of data every window holds the SAME points, so a toggle would just show identical
+        // charts and an index-spaced line would stretch a week across a "1Y" label.
+        val availableRanges = remember(detail) { availableVitalRanges(detail.points) }
+        // If the available set excludes the current pick, fall back to the widest available. This DOES fire
+        // on the common path: the default is MONTH, but with only a few days of data the sole available range
+        // is WEEK — so effectiveRange coerces MONTH -> WEEK and the chart renders instead of showing blank.
+        val effectiveRange = if (range in availableRanges) range else availableRanges.last()
+        val filteredPoints = remember(detail, effectiveRange) { filterVitalPoints(detail.points, effectiveRange) }
         if (filteredPoints.size < 2) {
             DataPendingNote(
                 title = "Not enough history in this range",
@@ -1706,12 +1714,16 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
                         )
                     }
                 }
-                SegmentedPillControl(
-                    items = VitalDetailRange.entries,
-                    selection = range,
-                    label = { it.label },
-                    onSelect = { range = it },
-                )
+                // Hide the range toggle until there's more than one meaningful window — with a few days of
+                // data there's only WEEK, so a toggle would just switch between identical charts.
+                if (availableRanges.size > 1) {
+                    SegmentedPillControl(
+                        items = availableRanges,
+                        selection = effectiveRange,
+                        label = { it.label },
+                        onSelect = { range = it },
+                    )
+                }
                 LineChart(
                     values = values,
                     modifier = Modifier.height(Metrics.chartHeight),
@@ -1799,13 +1811,27 @@ private fun asOfLabel(day: String?): String? {
     }
 }
 
-private enum class VitalDetailRange(val label: String, val days: Long?) {
+internal enum class VitalDetailRange(val label: String, val days: Long?) {
     WEEK("W", 7),
     MONTH("M", 30),
     THREE_MONTH("3M", 90),
     SIX_MONTH("6M", 180),
     YEAR("1Y", 365),
     ALL("ALL", null),
+}
+
+/** The vital-trend ranges worth offering for a point set: WEEK always (the smallest), and each longer
+ *  range only once history extends past the next-shorter window (so it reveals something new). Returns
+ *  [WEEK] alone for a few days of data — which suppresses the toggle — and unlocks M/3M/6M/1Y/ALL as data
+ *  accrues. Always a contiguous prefix, since the windows increase monotonically. Twin of the Swift
+ *  MetricDetailView.availableRanges. */
+internal fun availableVitalRanges(points: List<Pair<String, Double>>): List<VitalDetailRange> {
+    val dates = points.mapNotNull { runCatching { LocalDate.parse(it.first) }.getOrNull() }
+    val spanDays = if (dates.size < 2) 0L else dates.max().toEpochDay() - dates.min().toEpochDay()
+    val ordered = VitalDetailRange.entries
+    return ordered.filterIndexed { i, _ ->
+        i == 0 || (ordered[i - 1].days?.let { spanDays > it } ?: false)
+    }
 }
 
 private fun filterVitalPoints(
