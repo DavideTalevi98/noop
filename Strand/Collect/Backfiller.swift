@@ -121,6 +121,10 @@ final class Backfiller {
     /// Backfiller (PR #241, ryanbr); reset per session in `begin`.
     private var loggedLayoutVersions: Set<Int> = []
 
+    /// #SpO2-RE: how many full-record SpO2 dumps we've emitted this session (bounded by
+    /// `Spo2ReTrace.maxSamples`). Session-scoped so the cap spans chunks; reset per session in `begin`.
+    private var spo2Dumped = 0
+
     /// Durably archives undecodable record frames BEFORE the trim ack (#77 / #91). Returns true once
     /// the bytes are safe (written OR cap-reached — either way the chunk may be acked) and false on a
     /// genuine write failure, in which case `finishChunk` holds the cursor/ack so the strap re-sends.
@@ -193,6 +197,7 @@ final class Backfiller {
         loggedFutureRtc = false
         sessionDroppedImplausible = 0
         loggedLayoutVersions.removeAll(keepingCapacity: true)
+        spo2Dumped = 0
         // #547: the range markers belong to a connection's GET_DATA_RANGE, which BLEManager re-sets per
         // connect; clear them here so a fresh session never reuses a previous strap's window. BLEManager
         // re-publishes them as soon as the range reply arrives.
@@ -365,6 +370,24 @@ final class Backfiller {
                     }
                     return ConnectionTrace.firmwareLine(version: v, decodable: decodable)
                 }())
+            }
+            // #SpO2-RE: dump a few FULL historical records + their raw SpO2 channels so an offline pass can
+            // tell whether the strap banks a COMPUTED SpO2 (a byte tracking the WHOOP app's nightly %) vs
+            // only the raw red/IR ADC. Gated on the Connection test mode (zero-cost off), bounded per
+            // session across chunks via `spo2Dumped`. Records dump whether or not they carry SpO2, so
+            // "nothing banked" is provable too. Diagnostic-only; never changes stored data. Twin of Android.
+            if spo2Dumped < Spo2ReTrace.maxSamples, connectionActive(), let connectionLog {
+                for (raw, p) in zip(frames, parsed) {
+                    connectionLog(Spo2ReTrace.recordLine(
+                        frame: raw,
+                        version: p.parsed["hist_version"]?.intValue,
+                        unix: p.parsed["unix"]?.intValue,
+                        red: p.parsed["spo2_red"]?.intValue,
+                        ir: p.parsed["spo2_ir"]?.intValue,
+                        skinRaw: p.parsed["skin_temp_raw"]?.intValue))
+                    spo2Dumped += 1
+                    if spo2Dumped >= Spo2ReTrace.maxSamples { break }
+                }
             }
             // Diagnostic (#30): a historical record whose firmware version we don't have a field map for
             // bails out of decode entirely — no HR, no R-R, no GRAVITY — so sleep (which is gravity/

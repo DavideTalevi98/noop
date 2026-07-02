@@ -213,6 +213,10 @@ class Backfiller(
      */
     private val loggedLayoutVersions = HashSet<Int>()
 
+    /** #SpO2-RE: how many full-record SpO2 dumps we've emitted this session (bounded by
+     *  [com.noop.analytics.Spo2ReTrace.MAX_SAMPLES]). Session-scoped so the cap spans chunks. */
+    private var spo2Dumped = 0
+
     /**
      * #547: logged once per session the first time the #547 ingest gate drops an implausible-timestamp
      * record (a bad strap clock/flash emitting far-past / year-2027-spike / future-dated `unix` values).
@@ -245,6 +249,7 @@ class Backfiller(
         loggedNoCursor = false
         loggedFutureRtc = false
         loggedLayoutVersions.clear()
+        spo2Dumped = 0
         loggedImplausibleClock = false
         sessionDroppedImplausible = 0
         // #547: the range markers belong to a connection's GET_DATA_RANGE, which the client re-sets per
@@ -344,6 +349,18 @@ class Backfiller(
                         }
                     }
                 }
+            // #SpO2-RE: dump a few FULL historical records + their raw SpO2 channels so an offline pass can
+            // tell whether the strap banks a COMPUTED SpO2 (a byte tracking the WHOOP app's nightly %) vs
+            // only the raw red/IR ADC. Gated on the Connection test mode (zero-cost off, one gate check),
+            // bounded per session across chunks via [spo2Dumped]. Records are dumped whether or not they
+            // carry SpO2, so "nothing banked" is provable too. Diagnostic-only; never changes stored data.
+            if (spo2Dumped < com.noop.analytics.Spo2ReTrace.MAX_SAMPLES && connectionActive()) {
+                for (f in frames) {
+                    val d = decodeHistorical(f, family) ?: continue
+                    connectionLog(com.noop.analytics.Spo2ReTrace.recordLine(f, d))
+                    if (++spo2Dumped >= com.noop.analytics.Spo2ReTrace.MAX_SAMPLES) break
+                }
+            }
             // #547: the strap is emitting records with implausible timestamps (a bad clock/flash —
             // far-past, a year-2027 spike, or future-dated `unix`). The ingest gate dropped them so they
             // can't pollute the day-windowed analytics; surface it ONCE per session so a bad-clock strap
