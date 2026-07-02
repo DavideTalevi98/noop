@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
+import androidx.health.connect.client.records.LeanBodyMassRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.RespiratoryRateRecord
@@ -97,6 +99,8 @@ object HealthConnectImporter {
         RespiratoryRateRecord::class,
         Vo2MaxRecord::class,
         WeightRecord::class,
+        BodyFatRecord::class,
+        LeanBodyMassRecord::class,
         ExerciseSessionRecord::class,
         DistanceRecord::class,
     )
@@ -258,6 +262,23 @@ object HealthConnectImporter {
                     b.weightTs = r.time.epochSecond
                 }
             }
+            // --- Body fat (%) -> latest value of the day wins. Health Connect's Percentage is already
+            // 0-100 (unlike Apple's 0..1 fraction), so it's stored as-is — matching the iOS body_fat key. ---
+            readAll(client, BodyFatRecord::class, filter, selfPackage) { r ->
+                val b = bucket(dayOf(r.time))
+                if (r.time.epochSecond >= b.bodyFatTs) {
+                    b.bodyFatPct = r.percentage.value
+                    b.bodyFatTs = r.time.epochSecond
+                }
+            }
+            // --- Lean body mass (kg) -> latest value of the day wins (iOS lean_mass twin). ---
+            readAll(client, LeanBodyMassRecord::class, filter, selfPackage) { r ->
+                val b = bucket(dayOf(r.time))
+                if (r.time.epochSecond >= b.leanMassTs) {
+                    b.leanMassKg = r.mass.inKilograms
+                    b.leanMassTs = r.time.epochSecond
+                }
+            }
             // --- Exercise sessions -> WorkoutRow(source="health-connect") ---
             readAll(client, ExerciseSessionRecord::class, filter, selfPackage) { r ->
                 val startS = r.startTime.epochSecond
@@ -413,6 +434,12 @@ object HealthConnectImporter {
                 )
                 a.weightKg?.let { metricSeriesRows += MetricSeriesRow(HC_DEVICE, day, "weight", round2(it)) }
             }
+            // Body composition (from a smart scale — e.g. a Garmin Index synced via Garmin Connect) is
+            // metricSeries-only (no AppleDaily field), so emit it independently of the AppleDaily gate — a
+            // scale-only day with no steps/HR still records its readings. Same keys + units as the iOS
+            // Apple Health import: body_fat as a 0-100 percent, lean_mass in kg.
+            a.bodyFatPct?.let { metricSeriesRows += MetricSeriesRow(HC_DEVICE, day, "body_fat", round2(it)) }
+            a.leanMassKg?.let { metricSeriesRows += MetricSeriesRow(HC_DEVICE, day, "lean_mass", round2(it)) }
 
             // DailyMetric (my-whoop): resting-HR / HRV / sleep-minutes / SpO2 / respiration,
             // ONLY for days the strap does not already cover (raw OR computed).
@@ -770,6 +797,11 @@ object HealthConnectImporter {
 
         var weightKg: Double? = null
         var weightTs: Long = Long.MIN_VALUE
+
+        var bodyFatPct: Double? = null
+        var bodyFatTs: Long = Long.MIN_VALUE
+        var leanMassKg: Double? = null
+        var leanMassTs: Long = Long.MIN_VALUE
 
         var exerciseCount: Int = 0
     }
