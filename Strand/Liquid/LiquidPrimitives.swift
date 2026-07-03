@@ -248,7 +248,7 @@ struct LiquidVessel: View {
         .aspectRatio(1, contentMode: .fit)
         .contentShape(Circle())
         .onTapGesture { sim.splash(12); splashes &+= 1 }
-        .sensoryFeedback(.impact(weight: .light), trigger: splashes)   // a little tap feedback with the splash
+        .liquidTapHaptic(trigger: splashes)   // light tap feedback (guarded so the primitives compile on macOS 13)
         .onAppear { LiquidMotion.shared.acquire() }
         .onDisappear { LiquidMotion.shared.release() }
     }
@@ -331,5 +331,44 @@ struct LiquidThread: View {
             LiquidRender.thread(context, size, values: bpm, now: 0, tint: tint)
         }
         .frame(height: height)
+    }
+}
+
+// MARK: - Shared liquid components (cross-platform: used by Today AND the other liquid screens on iOS + mac)
+
+extension View {
+    /// A light selection/impact haptic, available only where `sensoryFeedback` is (iOS 17 / macOS 14);
+    /// a no-op below that so the liquid primitives still compile on the macOS 13 deployment target.
+    @ViewBuilder func liquidTapHaptic(trigger: some Equatable) -> some View {
+        if #available(iOS 17.0, macOS 14.0, *) {
+            self.sensoryFeedback(.impact(weight: .light), trigger: trigger)
+        } else {
+            self
+        }
+    }
+}
+
+/// The "this card was pressed" response for any tappable liquid card — a small settle inward plus a
+/// touch of dimming. Cheap (a transform), so it's free on static cards and makes every tap feel physical.
+struct LiquidPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .opacity(configuration.isPressed ? 0.86 : 1)
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
+    }
+}
+
+/// A number that animates to its value: SwiftUI interpolates `animatableData`, so the shown integer rolls
+/// smoothly frame-by-frame whenever `value` changes inside a `withAnimation` block.
+struct CountUpNumber: View, Animatable {
+    var value: Double
+    var font: Font
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+    var body: some View {
+        Text("\(Int(value.rounded()))").font(font).monospacedDigit()
     }
 }

@@ -870,20 +870,6 @@ private struct PullOffsetKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-// MARK: - Press feedback
-
-/// A subtle "the card was pressed" response for the tappable liquid cards — a small settle inward
-/// plus a touch of dimming. Cheap (a transform), so it costs nothing on the static cards and makes
-/// every tap feel physical (Aaron: "every motion, every tiny little thing").
-struct LiquidPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.975 : 1)
-            .opacity(configuration.isPressed ? 0.86 : 1)
-            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
-    }
-}
-
 // MARK: - NOOP wordmark (centred, with a tap easter egg)
 
 /// The subtle NOOP wordmark. Built as a row of letters (not `Text(...).tracking()`, which adds a
@@ -1010,19 +996,6 @@ private struct HeroScoreCell: View {
     }
 }
 
-/// A number that animates to its value: SwiftUI interpolates `animatableData`, so the shown integer rolls
-/// smoothly frame-by-frame whenever `value` changes inside a `withAnimation` block.
-private struct CountUpNumber: View, Animatable {
-    var value: Double
-    var font: Font
-    var animatableData: Double {
-        get { value }
-        set { value = newValue }
-    }
-    var body: some View {
-        Text("\(Int(value.rounded()))").font(font).monospacedDigit()
-    }
-}
 
 // MARK: - Scene controls (LiveState-isolated leaves)
 

@@ -73,10 +73,10 @@ targets:
         excludes:
           - "Resources/Info.plist"
           - "Resources/Strand.entitlements"
-          # iOS-shaped liquid Today + interactive primitives are excluded from the mac target
-          # (mac liquid is a later, mac-shaped pass); LiquidCore + LiquidSky stay for the shared sky backdrop.
+          # Only the iOS-shaped liquid Today SCREEN is excluded from the mac target (tab-bar nav + iOS-17
+          # navigation APIs). LiquidCore/Sky/Primitives are cross-platform (haptics guarded) and stay, so the
+          # shared liquid screens draw the same vessels/tubes/thread on mac. Mac liquid Today = a later pass.
           - "Liquid/LiquidTodayView.swift"
-          - "Liquid/LiquidPrimitives.swift"
     info:
       path: Strand/Resources/Info.plist
       properties:
