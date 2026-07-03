@@ -306,7 +306,7 @@ struct SleepView: View {
             } label: {
                 Text("Undo").font(StrandFont.footnote.weight(.semibold))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(LiquidPressStyle())
             .foregroundStyle(StrandPalette.restColor)
             .accessibilityLabel("Undo sleep deletion")
         }
@@ -329,14 +329,14 @@ struct SleepView: View {
     }
 
     /// The Rest world's opening: a scenic indigo backdrop with — when the night carries a 0–100
-    /// sleep-performance score — a layered `BevelGauge` in the Rest gradient; otherwise a big
-    /// SF-Rounded hours-slept headline over the same backdrop. A `SourceBadge` states whether the
-    /// score is WHOOP's own imported figure or NOOP's on-device estimate. Presentation-only — the
-    /// number comes straight from the existing `model.performance.latest` / hours computation. (Bevel)
+    /// sleep-performance score — the canonical liquid `LiquidVessel` in the Rest tint with the score
+    /// counting up over it (the SAME hero language Today's score cells and the Trends headline use);
+    /// otherwise a big SF-Rounded hours-slept headline over the same backdrop. A `SourceBadge` states
+    /// whether the score is WHOOP's own imported figure or NOOP's on-device estimate. Presentation-only
+    /// — the number comes straight from the existing `model.performance.latest` / hours computation.
     @ViewBuilder
     private func restHero(_ model: SleepModel) -> some View {
         let score = model.performance.latest
-        let frac = heroScoreFraction(model)
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Sleep performance", overline: "Last night", trailing: String(localized: "Rest"))
             // A subtle night atmosphere sits behind the sleep hero ONLY (the Rest world's whisper:
@@ -344,17 +344,32 @@ struct SleepView: View {
             // card. Replaces the now-flat ScenicHeroBackground here.
             VStack(spacing: NoopMetrics.space4) {
                 if let score {
-                    BevelGauge(
-                        fraction: frac,
-                        stops: StrandPalette.restGradient.stops,
-                        tipColor: StrandPalette.restColor,
-                        numberText: "\(Int(score.rounded()))",
-                        captionText: String(localized: "of 100"),
-                        stateText: sleepScoreWord(score),
-                        diameter: 184,
-                        lineWidth: 15,
-                        animatedFraction: heroFraction
-                    )
+                    // The signature liquid gauge: a filling vessel tinted Rest, with the 0–100 score
+                    // counting up over it and a short state word beneath. The vessel fills to the SAME
+                    // animated `heroFraction` the screen already drives on appear / on score change, so
+                    // the arc draw-in and the number roll-up land together (Today's HeroScoreCell idiom).
+                    VStack(spacing: NoopMetrics.space3) {
+                        ZStack {
+                            LiquidVessel(value: heroFraction, tint: StrandPalette.restColor, animated: true)
+                                .frame(width: 184, height: 184)
+                            VStack(spacing: 0) {
+                                CountUpText(
+                                    value: score,
+                                    format: { "\(Int($0.rounded()))" },
+                                    font: StrandFont.rounded(52),
+                                    color: StrandPalette.textPrimary
+                                )
+                                .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                                Text("of 100")
+                                    .font(StrandFont.caption)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                            .allowsHitTesting(false)   // taps fall through to the vessel → splash
+                        }
+                        Text(sleepScoreWord(score))
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.restColor)
+                    }
                     .padding(.top, NoopMetrics.space1)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Sleep performance \(Int(score.rounded())) of 100")
@@ -493,7 +508,7 @@ struct SleepView: View {
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.restColor)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(LiquidPressStyle())
                     .accessibilityLabel("Add a nap")
                 }
                 // Daily split (#518): only meaningful once the day has a nap; a single-night day reads
@@ -568,7 +583,7 @@ struct SleepView: View {
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(LiquidPressStyle())
             .help("Why this is logged as a nap")
             .accessibilityLabel("Why this is logged as a nap")
             .popover(isPresented: Binding(
@@ -589,7 +604,7 @@ struct SleepView: View {
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(LiquidPressStyle())
             .help("Edit nap times")
             .accessibilityLabel(isEdited ? "Edit nap times (edited)" : "Edit nap times")
         }
@@ -788,7 +803,7 @@ struct SleepView: View {
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LiquidPressStyle())
                 .help("Why this is your main sleep")
                 .accessibilityLabel("Why this is your main sleep")
                 .popover(isPresented: $showMainSleepWhy, arrowEdge: .bottom) {
@@ -871,7 +886,7 @@ struct SleepView: View {
                     .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.restColor)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(LiquidPressStyle())
             .help("Edit sleep times")
             .accessibilityLabel(isEdited ? "Edit sleep times (edited)" : "Edit sleep times")
         }
@@ -1205,31 +1220,29 @@ struct SleepView: View {
             GeometryReader { geo in
                 let w = geo.size.width
                 ZStack(alignment: .leading) {
-                    // Track.
-                    Capsule(style: .continuous)
-                        .fill(StrandPalette.surfaceInset)
-                    // Typical-range CONTEXT: a diagonal-hatch track spanning the personal mean for this
-                    // stage. "Hatch = the context" — the user's solid value sits over it.
+                    // Last-night value as the signature liquid tube — "solid = you", now a filling liquid
+                    // capsule tinted in the stage colour (static/posed, like Today's grid tubes). It renders
+                    // its own dark capsule track, so it replaces the flat solid fill + track. The fraction
+                    // is unchanged (last / shared per-row max).
+                    LiquidTube(frac: min(1, last / max), tint: color, height: 12, animated: false)
+                    // Typical-range CONTEXT overlaid on top: a diagonal-hatch track spanning the personal
+                    // mean for this stage. "Hatch = the context" — the liquid value sits under it.
                     if let typical, typical > 0 {
                         DiagonalHatch(spacing: 5, lineWidth: 1)
-                            .stroke(color.opacity(0.5), lineWidth: 1)
+                            .stroke(color.opacity(0.6), lineWidth: 1)
                             .frame(width: w * CGFloat(min(1, typical / max)))
                             .clipShape(Capsule(style: .continuous))
                     }
-                    // Last-night SOLID value fill — "solid = you".
-                    Capsule(style: .continuous)
-                        .fill(color)
-                        .frame(width: w * CGFloat(min(1, last / max)))
                     // Crisp typical-mean marker so the exact mean still reads at a glance.
                     if let typical, typical > 0 {
                         Rectangle()
                             .fill(StrandPalette.textPrimary)
-                            .frame(width: 2, height: 16)
-                            .position(x: w * CGFloat(min(1, typical / max)), y: 5)
+                            .frame(width: 2, height: 18)
+                            .position(x: w * CGFloat(min(1, typical / max)), y: 6)
                     }
                 }
             }
-            .frame(height: 10)
+            .frame(height: 12)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(stageRowAccessibilityLabel(label: label, last: last, sharePct: sharePct, typical: typical))
         }
@@ -1622,7 +1635,7 @@ struct SleepView: View {
                         .font(StrandFont.headline)
                         .foregroundStyle(nightOffset >= lastIndex ? StrandPalette.textTertiary : StrandPalette.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LiquidPressStyle())
                 .disabled(nightOffset >= lastIndex)
                 .accessibilityLabel("Previous night")
 
@@ -1633,7 +1646,7 @@ struct SleepView: View {
                         .font(StrandFont.headline)
                         .foregroundStyle(nightOffset == 0 ? StrandPalette.textTertiary : StrandPalette.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LiquidPressStyle())
                 .disabled(nightOffset == 0)
                 .accessibilityLabel("Next night")
             }
