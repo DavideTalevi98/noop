@@ -206,7 +206,9 @@ struct MetricExplorerView: View {
             } label: {
                 deepTimelineRow
             }
-            .buttonStyle(StrandPressableButtonStyle(cornerRadius: NoopMetrics.cardRadius))
+            // Liquid press language: the settle-inward LiquidPressStyle (the same physical response the
+            // Today / batch-1 cards use), replacing the classic StrandPressableButtonStyle.
+            .buttonStyle(LiquidPressStyle())
             #if os(iOS)
             .simultaneousGesture(TapGesture().onEnded { StrandHaptic.selection.play() })
             #endif
@@ -233,9 +235,10 @@ struct MetricExplorerView: View {
                                         MetricRow(metric: metric,
                                                   isEmpty: emptyByID[metric.id] ?? false)
                                     }
-                                    // Full-row press-down feedback (square corners — the row spans the
-                                    // card edge-to-edge, dividers between).
-                                    .buttonStyle(StrandPressableButtonStyle(cornerRadius: 0))
+                                    // Full-row press-down feedback in the liquid language — the settle-inward
+                                    // LiquidPressStyle (a transform, so it works edge-to-edge with dividers
+                                    // between, no corner radius to match). Matches Today's tappable rows.
+                                    .buttonStyle(LiquidPressStyle())
                                     #if os(iOS)
                                     // Light selection tick on tap; the simultaneousGesture leaves the
                                     // NavigationLink push intact.
@@ -598,10 +601,11 @@ struct MetricDetailView: View {
 
     // MARK: Scenic hero
 
-    /// The detail's opening hero: the metric's latest value as either a layered ring
-    /// BevelGauge (for 0–100 scores) or a big SF-Rounded headline number, floated over a
-    /// domain-tinted ScenicHeroBackground, with the category overline, the "as of" line,
-    /// and the range pill. Mirrors TodayView's score-hero idiom.
+    /// The detail's opening hero: the metric's latest value as either the signature liquid
+    /// LiquidVessel gauge (for 0–100 scores, filled to the score with the number counting up over
+    /// it) or a big count-up headline number, floated over a domain-tinted ScenicHeroBackground,
+    /// with the category overline, the "as of" line, and the range pill. Mirrors TodayView's
+    /// liquid score-hero idiom (and Health's Fitness-Age / Vitality vessels).
     @ViewBuilder
     private func heroHeader(effectiveRange: ExploreRange,
                             windowed: [(day: String, value: Double)],
@@ -633,30 +637,60 @@ struct MetricDetailView: View {
                 SegmentedPillControl(ExploreRange.allCases, selection: selectionBinding,
                                      isEnabled: isUnlocked) { $0.label }
 
-                // The headline read-out: a ring gauge for 0–100 scores, else a big number.
+                // The headline read-out in the liquid language: for a 0–100 score, the signature
+                // LiquidVessel gauge filled to the score (the same hero idiom as Today's rings / Health's
+                // Fitness-Age + Vitality heroes), with the integer counting up over it and the unit + "as
+                // of" line beneath. For a non-score metric, a big count-up number. The vessel fills from 0
+                // to its fraction on appear (`heroAnimatedFraction`), so it settles once like TodayView's
+                // rings; the number ticks itself. A liquid accent on the ONE headline value, where it reads
+                // well — never over the chart below.
                 HStack {
                     Spacer(minLength: 0)
-                    if let fraction {
-                        BevelGauge(
-                            fraction: fraction,
-                            stops: domain.gradient.stops,
-                            tipColor: domain.bright,
-                            numberText: latest.map { String(Int($0.value.rounded())) } ?? "—",
-                            captionText: metric.unit.isEmpty ? nil : "\(metric.unit)",
-                            stateText: nil,
-                            supporting: asOf,
-                            diameter: 188,
-                            lineWidth: 15,
-                            showsLabel: latest != nil,
-                            animatedFraction: heroAnimatedFraction
-                        )
+                    if let fraction, let v = value {
+                        VStack(spacing: 10) {
+                            ZStack {
+                                // The big hero vessel stays live (animated) — the one sloshing gauge on the
+                                // screen, exactly like the hero gauges on Today.
+                                LiquidVessel(value: heroAnimatedFraction, tint: domain.bright, animated: true)
+                                    .frame(width: 188, height: 188)
+                                    .accessibilityHidden(true)
+                                VStack(spacing: 2) {
+                                    CountUpNumber(value: v, font: StrandFont.rounded(48))
+                                        .foregroundStyle(.white)
+                                        .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                                    if !metric.unit.isEmpty {
+                                        Text(metric.unit)
+                                            .font(StrandFont.footnote)
+                                            .foregroundStyle(.white.opacity(0.85))
+                                            .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
+                                    }
+                                }
+                                .allowsHitTesting(false)
+                            }
+                            Text(asOf)
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        // One VoiceOver stop for the hero read-out (the vessel is decorative above).
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(heroValue), \(asOf)")
+                    } else if let v = value {
+                        VStack(spacing: 6) {
+                            CountUpText(value: v, format: { fmt($0) },
+                                        font: StrandFont.number(54),
+                                        color: StrandPalette.textPrimary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
+                            Text(asOf)
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .padding(.vertical, 18)
                     } else {
                         VStack(spacing: 6) {
                             Text(heroValue)
                                 .font(StrandFont.number(54))
                                 .foregroundStyle(StrandPalette.textPrimary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.5)
                             Text(asOf)
                                 .font(StrandFont.footnote)
                                 .foregroundStyle(StrandPalette.textTertiary)
@@ -686,8 +720,8 @@ struct MetricDetailView: View {
         .padding(NoopMetrics.cardPadding)
         .background(ScenicHeroBackground(domain: domain))
         .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        // The hero shows the LATEST available point (range-independent), so the gauge
-        // settles once on appear — like TodayView's rings.
+        // The hero shows the LATEST available point (range-independent), so the vessel fills once on
+        // appear (0 → its fraction) and settles — like TodayView's rings.
         .onAppear {
             withAnimation(.easeOut(duration: 0.9)) {
                 heroAnimatedFraction = fraction ?? 0
@@ -913,14 +947,12 @@ struct MetricDetailView: View {
             }
             Spacer(minLength: 8)
             HStack(spacing: 10) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(StrandPalette.surfaceInset)
-                        Capsule().fill(color)
-                            .frame(width: max(4, geo.size.width * min(abs(row.r), 1.0)))
-                    }
-                }
-                .frame(width: 64, height: 6)
+                // The strength bar as the signature liquid tube — filled to |r|, tinted by the
+                // correlation's sign (positive green / negative red), posed (static) so a list of them
+                // costs one cached frame each. Replaces the flat capsule with the liquid range-bar idiom.
+                LiquidTube(frac: min(abs(row.r), 1.0), tint: color, height: 8, animated: false)
+                    .frame(width: 64)
+                    .accessibilityHidden(true)
                 Text("\(row.r >= 0 ? "+" : "−")\(String(format: "%.2f", abs(row.r)))")
                     .font(StrandFont.number(15))
                     .foregroundStyle(color)
