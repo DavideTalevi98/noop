@@ -753,7 +753,84 @@ object SleepStager {
      * a real night with a short off-wrist tail survives (#500). Defaults to empty (HR-gap proxy only),
      * so the pure function and its tests stay event-free.
      */
+    /** A single-Long fingerprint of a sample stream for the [detectSleep] memo key: folds the count and
+     *  every (ts, quantized value), so any interior edit (a re-import fixing a value in place) or a
+     *  truncation re-keys to a fresh compute — no stale hit. Same fold style as StagerCache.fingerprint. */
+    internal fun <T> streamFingerprint(samples: List<T>, ts: (T) -> Long, quant: (T) -> Long): Long {
+        var h = samples.size.toLong() * 2_654_435_761L
+        for (e in samples) h = h * 1_000_003L + ts(e) * 31L + quant(e)
+        return h
+    }
+
+    /** Full input key for the [detectSleep] memo — every input that steers detection or staging. */
+    private data class DetectKey(
+        val grav: Long, val hr: Long, val rr: Long, val resp: Long,
+        val tz: Long, val wristOff: Long, val band: Long, val v2: Boolean,
+    )
+
+    // v7.0.2 perf parity (#707): detectSleep is the single heaviest analytics call — it sorts the dense
+    // full-day gravity stream and builds the delta/still spine, and analyzeRecent re-runs it per day across
+    // the window every 15-min tick. Memoize the RESULT on a full input key so an idempotent re-pass (or a
+    // later sync that didn't touch this day) is a lookup. Bounded (≈ the days in a scoring window), access-
+    // order LRU. Mirrors Swift's detectSleepCache.
+    private const val DETECT_CACHE_MAX = 40
+    private val detectCache = object : LinkedHashMap<DetectKey, List<DetectedSleep>>(16, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<DetectKey, List<DetectedSleep>>) = size > DETECT_CACHE_MAX
+    }
+    private val detectCacheLock = Any()
+
+    /** DetectedSleep is immutable, BUT its `stages` are mutable [StageSegment]s (StagerCache deep-copies them
+     *  for exactly this reason), so the memo must NOT share the list: it holds a private copy and hands each
+     *  hit a fresh copy, or a caller mutating a stage in place would poison the cache. Swift needs no copy
+     *  (value-type structs); Kotlin's mutable StageSegment does. O(stages) — a fraction of the detection
+     *  spine the memo saves. */
+    private fun copyDetected(list: List<DetectedSleep>): List<DetectedSleep> =
+        list.map { it.copy(stages = StagerCache.copyOf(it.stages)) }
+
     fun detectSleep(
+        hr: List<HrSample> = emptyList(),
+        rr: List<RrInterval> = emptyList(),
+        resp: List<RespSample> = emptyList(),
+        gravity: List<GravitySample>,
+        tzOffsetSeconds: Long = 0L,
+        wristOff: List<Pair<Long, Long>> = emptyList(),
+        bandSleepState: List<Pair<Long, Int>> = emptyList(),
+        useSleepStagerV2: Boolean = false,
+        traceSink: ((String) -> Unit)? = null,
+    ): List<DetectedSleep> {
+        // Test mode ONLY (a trace requested): run the live ladder so each gate verdict emits for THIS night.
+        // The trace is side-effect-only and returns a byte-identical list, so every real (untraced) call
+        // memoizes. Mirrors Swift detectSleep (#707).
+        if (traceSink != null) {
+            return detectSleepUncached(hr, rr, resp, gravity, tzOffsetSeconds, wristOff,
+                bandSleepState, useSleepStagerV2, traceSink)
+        }
+        val key = DetectKey(
+            // Fold each axis's raw bits SEPARATELY (like StagerCache.fingerprint) rather than the x+y+z
+            // sum, so two vectors with the same component sum can't alias — free collision hardening.
+            grav = streamFingerprint(gravity, { it.ts }) {
+                var q = java.lang.Double.doubleToRawLongBits(it.x)
+                q = q * 1_000_003L + java.lang.Double.doubleToRawLongBits(it.y)
+                q = q * 1_000_003L + java.lang.Double.doubleToRawLongBits(it.z)
+                q
+            },
+            hr = streamFingerprint(hr, { it.ts }) { it.bpm.toLong() },
+            rr = streamFingerprint(rr, { it.ts }) { it.rrMs.toLong() },
+            resp = streamFingerprint(resp, { it.ts }) { it.raw.toLong() },
+            tz = tzOffsetSeconds,
+            wristOff = streamFingerprint(wristOff, { it.first }) { it.second },
+            band = streamFingerprint(bandSleepState, { it.first }) { it.second.toLong() },
+            v2 = useSleepStagerV2,
+        )
+        synchronized(detectCacheLock) { detectCache[key] }?.let { return copyDetected(it) }
+        // Build OUTSIDE the lock (a race just recomputes an identical result, like Swift's AnalyticsMemoCache).
+        val result = detectSleepUncached(hr, rr, resp, gravity, tzOffsetSeconds, wristOff,
+            bandSleepState, useSleepStagerV2, null)
+        synchronized(detectCacheLock) { detectCache[key] = copyDetected(result) }
+        return result
+    }
+
+    private fun detectSleepUncached(
         hr: List<HrSample> = emptyList(),
         rr: List<RrInterval> = emptyList(),
         resp: List<RespSample> = emptyList(),
