@@ -1415,6 +1415,16 @@ object IntelligenceEngine {
         // A locked override wins outright and skips the presence checks entirely.
         ownerSource.lockedOwner(day)?.let { return it }
         if (candidatePriorities.isEmpty()) return importedDeviceId
+        // #970: the default single-WHOOP install has exactly one live candidate that IS the fallback id, so
+        // the owner is a foregone conclusion (the sole priority-0 candidate resolves to its id; or no
+        // candidate has data -> null -> importedDeviceId, both == importedDeviceId here). Skip the per-day
+        // LIMIT-1 HR probe in that case — it runs once per scanned day, so this saves ~maxDays tiny reads
+        // per analyzeRecent. Byte-identical to the loop below. The guard is deliberately == importedDeviceId:
+        // a lone IMPORT device whose id differs would NOT be byte-identical (no data -> fallback, not its own
+        // id), so it must still take the probe path. Mirrors Swift IntelligenceEngine.resolveDayOwner #970.
+        if (candidatePriorities.size == 1 && candidatePriorities[0].first == importedDeviceId) {
+            return importedDeviceId
+        }
         val candidates = candidatePriorities.map { (id, priority) ->
             // Cheap presence check: a single HR row for this device in the night window marks it a
             // candidate. (LIMIT 1 , not the full pull the caller does once an owner is chosen.)
