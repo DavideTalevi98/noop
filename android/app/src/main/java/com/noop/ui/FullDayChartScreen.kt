@@ -82,6 +82,11 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
     var dayStartSec by remember { mutableStateOf(todayStart) }
     var didLand by remember { mutableStateOf(false) }
     val dayBounds = dayStartSec..(dayStartSec + 86_400)
+    // #986: a continuous left-drag can scroll back to the shown day plus the two before it (a rolling 3-day
+    // window), so older HR is reachable by dragging, not only the day-stepper. Deliberately bounded so one
+    // drag can't fling through weeks; the reload keys on the visible window so panned-to days load, and a day
+    // with no data falls to the empty state (parity with iOS FullDayChartView.panBounds).
+    val panBounds = (dayStartSec - 2 * 86_400)..(dayStartSec + 86_400)
 
     var metric by remember { mutableStateOf(TimelineMetric.Hr) }
     var ownedOnly by remember { mutableStateOf(true) }
@@ -147,7 +152,7 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
 
     ScreenScaffold(
         title = "Deep Timeline",
-        subtitle = "Every second of your day, zoomable.",
+        subtitle = "Every second of your day. Drag back up to 3 days.",
     ) {
         // METRIC PILLS — horizontally scrollable so all six fit on a phone.
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -217,7 +222,7 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
                             points = points,
                             windowStart = visible.first,
                             windowEnd = visible.last,
-                            bounds = dayBounds,
+                            bounds = panBounds,   // #986: pan clamp is the rolling 3-day window, not one day
                             color = metricColor(metric),
                             modifier = Modifier.fillMaxWidth().height(280.dp),
                             onWindowChange = { window = it },

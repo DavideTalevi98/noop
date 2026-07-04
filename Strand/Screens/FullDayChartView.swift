@@ -47,6 +47,14 @@ struct FullDayChartView: View {
         dayStart...dayStart.addingTimeInterval(86_400)
     }
 
+    /// #986: a continuous left-drag can scroll back to the shown day plus the two before it (a rolling
+    /// 3-day window), so older HR is reachable by dragging, not only the day-stepper. Deliberately bounded
+    /// so one drag can't fling through weeks. The default view is still exactly one day (xRange: dayBounds);
+    /// this only widens the pan clamp, and the data reload keys on the visible window so panned-to days load.
+    private var panBounds: ClosedRange<Date> {
+        dayStart.addingTimeInterval(-2 * 86_400)...dayBounds.upperBound
+    }
+
     /// The currently-visible window (zoomed or the whole day).
     private var visibleWindow: ClosedRange<Date> { zoomDomain ?? dayBounds }
 
@@ -180,7 +188,7 @@ struct FullDayChartView: View {
             xRange: dayBounds,
             height: 280,
             zoomDomain: $zoomDomain,
-            zoomBounds: dayBounds,
+            zoomBounds: panBounds,   // #986: pan/scroll clamp is the rolling 3-day window, not one day
             valueFormat: { format($0) },
             dateFormat: { Self.timeFmt.string(from: $0) }
         )
@@ -189,7 +197,7 @@ struct FullDayChartView: View {
         // (DeepTimeline owns the scroll handler; the chart's own gesture covers drag-pan.)
         .modifier(ScrollToZoomModifier(
             current: { visibleWindow },
-            bounds: dayBounds,
+            bounds: panBounds,   // #986: match the widened pan clamp
             apply: { zoomDomain = $0 }
         ))
         #endif
