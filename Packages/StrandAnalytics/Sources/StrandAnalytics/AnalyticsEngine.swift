@@ -159,6 +159,13 @@ public enum AnalyticsEngine {
         dayString(ts + offsetSec)
     }
 
+    /// UTC-midnight epoch seconds of the ISO `day` (yyyy-MM-dd). `dayString` formats a UTC calendar day, so
+    /// `dayString(ts, offsetSec:) == day` ⇔ `(ts + off) in [dayStartUtcSeconds(day), +86400)` — an integer
+    /// range check that avoids running a per-sample DateFormatter over full-day streams (see analyzeDay).
+    static func dayStartUtcSeconds(_ day: String) -> Int {
+        Int(isoDay.date(from: day)?.timeIntervalSince1970 ?? 0)
+    }
+
     /// JSON-encode stage segments to the verbatim array shape CachedSleepSession stores.
     /// `.sortedKeys` makes the output deterministic — JSONEncoder otherwise emits object keys in an
     /// unstable order (it can vary call to call), which would make stored stage JSON non-reproducible
@@ -279,6 +286,13 @@ public enum AnalyticsEngine {
                                   // When non-nil, the gate trace from detectSleep and the Rest sub-score line
                                   // are forwarded line-by-line. Side-effect-only; never alters the DayResult.
                                   traceSink: ((String) -> Void)? = nil) -> DayResult {
+        // Precompute the day's UTC bounds ONCE. `dayString(ts, offsetSec:)` formats the UTC calendar day of
+        // (ts + off) with a FIXED offset, so "== day" is exactly membership in [dayStartUtc, +86400). This
+        // replaces a per-sample DateFormatter — otherwise run over the full-day dayHr/daySteps streams
+        // (~86k 1 Hz samples) once per analyzeDay, ×maxDays every pass — with an integer range check.
+        let dayStartUtc = dayStartUtcSeconds(day)
+        let dayEndUtc = dayStartUtc + 86_400
+        func tsInDay(_ ts: Int) -> Bool { (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
         let allSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
@@ -288,7 +302,7 @@ public enum AnalyticsEngine {
                                                   traceSink: traceSink)
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
         // the caller's local-day key; attribute by the same offset so the bucket and the key agree.
-        let matched = allSessions.filter { dayString($0.end, offsetSec: tzOffsetSeconds) == day }
+        let matched = allSessions.filter { tsInDay($0.end) }
 
         // ── The day's MAIN night (#525) ───────────────────────────────────────
         // A day can hold an overnight AND a daytime nap (both end on `day`, so both are in `matched`).
@@ -496,7 +510,7 @@ public enum AnalyticsEngine {
         let stepsTotal: Int? = {
             // Prefer the full-calendar-day stream for the additive total; fall back to the
             // night-window stream when the caller didn't supply one (pure-function callers/tests).
-            let sorted = (daySteps ?? steps).filter { dayString($0.ts, offsetSec: tzOffsetSeconds) == day }.sorted { $0.ts < $1.ts }
+            let sorted = (daySteps ?? steps).filter { tsInDay($0.ts) }.sorted { $0.ts < $1.ts }
             if sorted.count < 2 { return nil }
             // A delta this large is a big time-gap / disconnect boundary between sync sessions (or a
             // firmware reboot, byte-indistinguishable from a wrap), NOT real steps — drop it so gaps
@@ -527,7 +541,7 @@ public enum AnalyticsEngine {
         // (dayString(ts, tzOffset)) so it agrees with the bucket (#277). Fall back to the
         // night-window hr for pure-function callers that don't supply dayHr. Strain keeps the full
         // window (bounded log).
-        let dayHrFiltered = (dayHr ?? hr).filter { dayString($0.ts, offsetSec: tzOffsetSeconds) == day }
+        let dayHrFiltered = (dayHr ?? hr).filter { tsInDay($0.ts) }
         let activeKcalEst: Double? = dayHrFiltered.isEmpty ? nil : Calories.estimateDayCalories(
             dayHrFiltered, profile: profile, hrmax: effMaxHR,
             restingHR: restingHRDaily.map(Double.init))

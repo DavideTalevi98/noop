@@ -12,6 +12,7 @@ import com.noop.protocol.DeviceFamily
 import com.noop.protocol.skinTempCelsius
 import org.json.JSONObject
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
@@ -88,6 +89,15 @@ object AnalyticsEngine {
      * pure-function callers/tests on UTC are unchanged.
      */
     fun dayString(ts: Long, offsetSec: Long): String = dayString(ts + offsetSec)
+
+    /** UTC-midnight epoch seconds of the ISO `day` (yyyy-MM-dd). [dayString] formats a UTC calendar day, so
+     *  `dayString(ts, off) == day` ⇔ `(ts + off) in [dayStartUtcSeconds(day), +86400)` — an integer range
+     *  check that avoids running a per-sample DateTimeFormatter over full-day streams (see analyzeDay). A
+     *  malformed `day` falls back to 0 (an empty 1970 window, no real samples) rather than throwing —
+     *  unreachable in practice (`day` always comes from [dayString]), matching the Swift `?? 0` fallback so
+     *  both platforms degrade a single day identically instead of the Kotlin side crashing the scoring pass. */
+    internal fun dayStartUtcSeconds(day: String): Long =
+        runCatching { LocalDate.parse(day).toEpochDay() * 86_400L }.getOrDefault(0L)
 
     /**
      * JSON-encode stage segments to the verbatim array shape the sleepSession cache
@@ -211,6 +221,13 @@ object AnalyticsEngine {
         // trace from detectSleep and the Rest sub-score line are forwarded line-by-line. Mirrors Swift.
         traceSink: ((String) -> Unit)? = null,
     ): DayResult {
+        // Precompute the day's UTC bounds ONCE. `dayString(ts, off)` formats the UTC calendar day of
+        // (ts + off) with a FIXED offset, so "== day" is exactly membership in [dayStartUtc, +86400). This
+        // replaces a per-sample DateTimeFormatter — otherwise run over the full-day dayHr/daySteps streams
+        // (~86k 1 Hz samples) once per analyzeDay, ×maxDays every pass — with an integer range check.
+        val dayStartUtc = dayStartUtcSeconds(day)
+        val dayEndUtc = dayStartUtc + 86_400L
+        fun tsInDay(ts: Long): Boolean = (ts + tzOffsetSeconds) in dayStartUtc until dayEndUtc
 
         // ── Sleep detection + staging ─────────────────────────────────────────
         val allSessions = SleepStager.detectSleep(
@@ -221,7 +238,7 @@ object AnalyticsEngine {
         )
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
         // the caller's local-day key; attribute by the same offset so the bucket and the key agree.
-        val matched = allSessions.filter { dayString(it.end, tzOffsetSeconds) == day }
+        val matched = allSessions.filter { tsInDay(it.end) }
 
         // ── The day's MAIN night (#525) ───────────────────────────────────────
         // A day can hold an overnight AND a daytime nap (both end on `day`, so both are in `matched`).
@@ -421,7 +438,7 @@ object AnalyticsEngine {
         val stepsTotal: Int? = run {
             // Prefer the full-calendar-day stream for the additive total; fall back to the
             // night-window stream when the caller didn't supply one (pure-function callers/tests).
-            val sorted = (daySteps ?: steps).filter { dayString(it.ts, tzOffsetSeconds) == day }.sortedBy { it.ts }
+            val sorted = (daySteps ?: steps).filter { tsInDay(it.ts) }.sortedBy { it.ts }
             if (sorted.size < 2) return@run null
             // A delta this large is a big time-gap / disconnect boundary between sync sessions (or a
             // firmware reboot, byte-indistinguishable from a wrap), NOT real steps — drop it so gaps
@@ -453,7 +470,7 @@ object AnalyticsEngine {
         // (dayString(ts, tzOffset)) so it agrees with the bucket (#277). Fall back to the
         // night-window hr for pure-function callers that don't supply dayHr. Strain keeps the full
         // window (bounded log).
-        val dayHrFiltered = (dayHr ?: hr).filter { dayString(it.ts, tzOffsetSeconds) == day }
+        val dayHrFiltered = (dayHr ?: hr).filter { tsInDay(it.ts) }
         val activeKcalEst: Double? = if (dayHrFiltered.isEmpty()) {
             null
         } else {
@@ -726,7 +743,8 @@ object RestScorer {
         if (asleepSeconds <= 0.0) return null
 
         val asleepHours = asleepSeconds / 3600.0
-        val needHours = (sleepNeedHours ?: defaultSleepNeedHours).coerceAtLeast(1e-9)
+        // Parity: Swift Rest.composite and Kotlin's own subScoreLine both floor need at 0.1 h (not 1e-9).
+        val needHours = (sleepNeedHours ?: defaultSleepNeedHours).coerceAtLeast(0.1)
 
         // Duration vs personal need (clamped at 100 — sleeping past need does not over-credit).
         val durationScore = min(100.0, asleepHours / needHours * 100.0)
