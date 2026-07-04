@@ -4192,6 +4192,38 @@ private suspend fun WhoopRepository.workoutsAllSources(from: Long, to: Long): Li
 // Mirrors the macOS TodayView.heartRateTrendSection. LineChart spaces points by index (no time axis),
 // so the buckets, being uniform 5-min means in time order, read as an even left-to-right day curve.
 
+/** The Today heart-rate card's visible window. [TODAY] = since the logical day's midnight (the default,
+ *  a 5-minute average, exactly as before). The rest are ROLLING "last N hours" ending now, which re-read
+ *  at a FINER bucket so recent HR isn't flattened into 5-minute averages — a 1h window is ~6-second detail
+ *  vs. the whole-day 5-min. Only offered on the CURRENT day: a past day has no "now", so it always shows
+ *  the full day. Mirrors the iOS TodayView hrWindow selector. */
+internal enum class HrWindow(val label: String, val hours: Int) {
+    // Declaration order IS the chip order: Today (widest ≈ whole day) anchors the wide end, then strictly
+    // most→least hours. TODAY stays first so it remains ordinal 0 (the default).
+    TODAY("Today", 0),
+    H24("24h", 24), H12("12h", 12), H6("6h", 6), H3("3h", 3), H1("1h", 1);
+
+    /** Bucket width for this window: the established 5-min for the full day, else ~600 points across the
+     *  span — floored at 1s (raw) and capped at the 5-min day bucket. Mirrors [timelineBucketSeconds]. */
+    fun bucketSeconds(): Long = if (this == TODAY) 300L else (hours * 3600L / 600L).coerceIn(1L, 300L)
+}
+
+/** "6-second average" / "5-minute average" for the HR card subtitle. */
+private fun hrBucketLabel(seconds: Long): String =
+    if (seconds >= 60) "${seconds / 60}-minute average" else "$seconds-second average"
+
+/** The HR-window selector row, reusing the app's one [SegmentedPillControl]. Shared by the empty and
+ *  populated card branches so the pills stay put whether or not the chosen window has data. */
+@Composable
+private fun HrWindowPills(selection: HrWindow, onSelect: (HrWindow) -> Unit) {
+    SegmentedPillControl(
+        items = HrWindow.entries.toList(),
+        selection = selection,
+        label = { it.label },
+        onSelect = onSelect,
+    )
+}
+
 @Composable
 private fun HeartRateTrendCard(
     viewModel: AppViewModel,
@@ -4205,6 +4237,15 @@ private fun HeartRateTrendCard(
     // trend keeps the evening's curve, window start at the logical day's own midnight, "since midnight"
     // subtitle, "Today" label, rather than blanking to an empty new-calendar-day axis (#144).
     var buckets by remember { mutableStateOf<List<HrBucket>>(emptyList()) }
+    // The bucket width the current window was read at (5-min for the full day, finer for a rolling window),
+    // fed to the subtitle so it reads honestly ("6-second average | last 1h").
+    var bucketSeconds by remember { mutableStateOf(300L) }
+    // The selected HR window (rememberSaveable ordinal so it survives rotation / process death and feels
+    // sticky like a preference). 0 = TODAY (since midnight), the unchanged default. Only acted on for the
+    // current day — a past day always shows the full day. Reset nothing on day change: a returning user
+    // keeps their chosen window.
+    var hrWindowOrdinal by rememberSaveable { mutableIntStateOf(0) }
+    val hrWindow = HrWindow.entries[hrWindowOrdinal]
     // The night's sleep session overlapping the HR window + the day's workouts, the Overview-HR
     // marker layers (sleep band, Charge at wake, sport glyphs at HR peaks). Loaded off the main
     // thread alongside the buckets; each marker self-hides when its data is absent. (PR #285)
@@ -4215,7 +4256,7 @@ private fun HeartRateTrendCard(
     // render, never re-queries the DB), keyed on the selected day so stepping days always opens at full
     // scale, while a same-day live reload keeps the window (fresh buckets only ever extend the loaded
     // extent, so an existing window stays valid). Reset by double-tap on the chart or the Reset link.
-    var hrZoom by remember(selectedDay) { mutableStateOf<LongRange?>(null) }
+    var hrZoom by remember(selectedDay, hrWindowOrdinal) { mutableStateOf<LongRange?>(null) }
     // #605: a WHOOP-4.0 offload banks raw HR samples straight into the hr-sample store WITHOUT touching
     // any DailyMetric row, so a sync that only adds today's HR curve never changes `days`, and keying the
     // reload on `days` alone left this chart frozen on the pre-sync window until something unrelated
@@ -4227,16 +4268,24 @@ private fun HeartRateTrendCard(
     val live by viewModel.live.collectAsStateWithLifecycle()
     // Re-load when the day list changes (an import updates it), when the day selector moves, and, via the
     // sync tokens, when a strap offload banks fresh HR samples for the current window. Also on first compose.
-    LaunchedEffect(days, selectedDay, today, live.lastSyncAt, live.syncChunksThisSession) {
+    LaunchedEffect(days, selectedDay, today, hrWindowOrdinal, live.lastSyncAt, live.syncChunksThisSession) {
         val zone = ZoneId.systemDefault()
-        val start = selectedDay.atStartOfDay(zone).toEpochSecond()
+        val midnight = selectedDay.atStartOfDay(zone).toEpochSecond()
         val nextStart = selectedDay.plusDays(1).atStartOfDay(zone).toEpochSecond()
         val now = System.currentTimeMillis() / 1000
-        val end = if (selectedDay == today) now else (nextStart - 1)
+        val isToday = selectedDay == today
+        // Rolling "last N hours" only applies to the current day (a past day has no "now"): past days always
+        // show the full calendar day, exactly as before. A shorter window is read at a finer bucket so the
+        // recent HR the user is asking about isn't flattened into 5-minute averages.
+        val win = if (isToday) hrWindow else HrWindow.TODAY
+        val end = if (isToday) now else (nextStart - 1)
+        val start = if (win == HrWindow.TODAY) midnight else now - win.hours * 3600L
+        val bucket = win.bucketSeconds()
+        bucketSeconds = bucket
         // #908: the Today HR curve reads the active strap ∪ canonical "my-whoop" union, NOT a hardcoded
         // "my-whoop". A strap re-added via the device manager banks live HR under its own fresh id, so a
         // pinned read showed the "no heart rate banked yet today" empty state. Single-WHOOP ⇒ one id ⇒ same.
-        buckets = viewModel.repo.hrBucketsUnion(viewModel.activeStrapId, start, end, 300L)
+        buckets = viewModel.repo.hrBucketsUnion(viewModel.activeStrapId, start, end, bucket)
         // The sleep that ended within the chart window (the night before / this morning), anchors
         // the band + the Charge-at-wake marker. A wide lower bound catches an onset before midnight.
         sleepToday = runCatching {
@@ -4268,13 +4317,21 @@ private fun HeartRateTrendCard(
     if (buckets.size < 2) {
         SectionHeader("Heart Rate", overline = selectedLabel)
         NoopCard {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Overline("Beats per minute")
+                // Keep the window pills visible even when empty so a too-narrow rolling window (e.g. 1h
+                // with no recent samples) is never a dead end — the user can widen it or return to Today.
+                if (selectedDay == today) {
+                    HrWindowPills(hrWindow) { hrWindowOrdinal = it.ordinal }
+                }
                 Text(
-                    if (selectedDay == today) {
-                        "Calibrating , no heart rate banked yet today. Your curve fills in as the strap offloads."
-                    } else {
-                        "No heart rate for this day. Step back to a day the strap was worn."
+                    when {
+                        selectedDay != today ->
+                            "No heart rate for this day. Step back to a day the strap was worn."
+                        hrWindow != HrWindow.TODAY ->
+                            "No heart rate in the last ${hrWindow.label}. Try a wider window or Today."
+                        else ->
+                            "Calibrating , no heart rate banked yet today. Your curve fills in as the strap offloads."
                     },
                     style = NoopType.footnote,
                     color = Palette.textTertiary,
@@ -4300,9 +4357,10 @@ private fun HeartRateTrendCard(
         if (sub.size >= 2) sub else buckets
     }
     val visBpm = remember(visBuckets) { visBuckets.map { it.avgBpm } }
-    // The left y-rail tracks the RENDERED window (LineChart normalises to what it draws, the Deep
-    // Timeline idiom), so a zoomed curve keeps honest max/avg/min beside it; the footer Min/Avg/Max row
-    // below stays the full-day read, mirroring the iOS footer.
+    // The left y-rail tracks the RENDERED (pinch-zoomed) subset (LineChart normalises to what it draws,
+    // the Deep Timeline idiom), so a zoomed curve keeps honest max/avg/min beside it. The footer Min/Avg/Max
+    // row below reads the whole SELECTED WINDOW — the full day for Today, or the rolling last-N-hours span —
+    // so it matches the subtitle and stays stable while you pinch around within that window.
     val visMax = visBpm.max().roundToInt()
     val visAvg = visBpm.average().roundToInt()
     val visMin = visBpm.min().roundToInt()
@@ -4314,10 +4372,10 @@ private fun HeartRateTrendCard(
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
                     Overline("Beats per minute")
-                    val subtitle = if (selectedDay == today) {
-                        "5-minute average | since midnight"
-                    } else {
-                        "5-minute average | selected day"
+                    val subtitle = when {
+                        selectedDay != today -> "5-minute average | selected day"
+                        hrWindow == HrWindow.TODAY -> "5-minute average | since midnight"
+                        else -> "${hrBucketLabel(bucketSeconds)} | last ${hrWindow.label}"
                     }
                     Text(
                         subtitle,
@@ -4326,6 +4384,11 @@ private fun HeartRateTrendCard(
                     )
                 }
                 Text("$latest bpm", style = NoopType.chartValueLarge, color = Palette.metricRose)
+            }
+            // Window selector (current day only): Today (since midnight, 5-min avg) or a rolling last-N-hours
+            // read at a finer bucket so recent HR isn't flattened. A past day has no "now" → no selector.
+            if (selectedDay == today) {
+                HrWindowPills(hrWindow) { hrWindowOrdinal = it.ordinal }
             }
             // Chart with a max/avg/min Y-axis label column on the left and an HH:mm X-axis row below.
             // The line spaces points by index, but the X labels read each bucket's REAL timestamp in
