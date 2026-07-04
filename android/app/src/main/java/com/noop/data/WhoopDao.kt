@@ -554,6 +554,18 @@ interface WhoopDao : DeviceRegistryDao {
     )
     suspend fun latestHrSampleTs(deviceId: String): Long?
 
+    /** Min HR sample ts for a device, or null if none — the OLDEST banked biometric point, i.e. the floor
+     *  the Deep Timeline's continuous scroll-back can reach. COALESCEs measured `hrSample` with v26
+     *  PPG-derived `ppgHrSample` (#156), mirroring [latestHrSampleTs] so the frontier and the floor read
+     *  the same union. */
+    @Query(
+        "SELECT MIN(ts) FROM (" +
+            "SELECT ts FROM hrSample WHERE deviceId = :deviceId " +
+            "UNION ALL " +
+            "SELECT ts FROM ppgHrSample WHERE deviceId = :deviceId)",
+    )
+    suspend fun earliestHrSampleTs(deviceId: String): Long?
+
     @Query("SELECT COUNT(*) FROM hrSample") suspend fun countHr(): Int
     // #836: max raw-HR timestamp across all devices. Paired with countHr() as a cheap whole-history change
     // fingerprint so the 15-min idle rescore can skip when nothing new has landed (COALESCE → 0 when empty).

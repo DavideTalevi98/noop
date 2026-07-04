@@ -89,6 +89,26 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
     var window by remember { mutableStateOf<LongRange?>(null) }
     val visible = window ?: dayBounds
 
+    // Continuous scroll-back (#575 follow-up): the OLDEST banked HR ts is the floor the pan/zoom can reach,
+    // so dragging LEFT past the current day loads older history at the right resolution — the settled-window
+    // read below already re-reads whatever range is visible. HR is the frontier metric (its active∪canonical
+    // union covers every strap), so its earliest ts is the honest data floor for the whole timeline. Queried
+    // once per device; null until it lands / when there is no data, in which case the pan stays within the day.
+    var historyFloorSec by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(deviceId) {
+        historyFloorSec = runCatching { vm.repo.earliestHrSampleTs(deviceId) }.getOrNull()
+    }
+    // Bound the continuous scroll to a rolling 3-DAY window (the shown day + the 2 before it), so a single
+    // drag can never fling back through weeks of history. Clamped further to the oldest banked sample when
+    // there's less than 3 days of data. Older SPECIFIC days stay reachable via the day-stepper — a deliberate
+    // jump, not a scroll — so this caps the drag without amputating access (#597). The DEFAULT view and Reset
+    // stay a single day (window == null → dayBounds); scroll-back is opt-in by dragging.
+    val scrollFloor = dayBounds.first - 2 * 86_400L
+    val panFloor = maxOf(scrollFloor, historyFloorSec ?: scrollFloor)
+    val panBounds = panFloor..dayBounds.last
+    // The hint promises scroll-back only when a left drag will actually reveal an earlier day with data.
+    val canScrollBack = panFloor < dayBounds.first
+
     // #597 / #863 , one-shot: open on the most recent day that has DATA, so a just-synced-history user
     // (and a calibrating 4.0 that has banked raw HR but no scored DailyMetric yet) lands on real data
     // instead of an empty today. The latest SCORED day (DailyMetric) is the first choice; when there is
@@ -147,7 +167,7 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
 
     ScreenScaffold(
         title = "Deep Timeline",
-        subtitle = "Every second of your day, zoomable.",
+        subtitle = "Every second, zoomable — drag back through your history.",
     ) {
         // METRIC PILLS — horizontally scrollable so all six fit on a phone.
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -217,7 +237,9 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
                             points = points,
                             windowStart = visible.first,
                             windowEnd = visible.last,
-                            bounds = dayBounds,
+                            // Widened past the shown day so a left drag scrolls back into older history
+                            // (clamped to the oldest banked sample); the default/reset view stays one day.
+                            bounds = panBounds,
                             color = metricColor(metric),
                             modifier = Modifier.fillMaxWidth().height(280.dp),
                             onWindowChange = { window = it },
@@ -239,7 +261,11 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
         // ZOOM HINT + reset.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (window == null) "Pinch to zoom · drag to pan" else "Zoomed in - drag to pan",
+                when {
+                    window != null -> "Zoomed in · drag to pan"
+                    canScrollBack -> "Pinch to zoom · drag ‹ for older history"
+                    else -> "Pinch to zoom · drag to pan"
+                },
                 style = NoopType.footnote, color = Palette.textTertiary,
             )
             Spacer(Modifier.weight(1f))

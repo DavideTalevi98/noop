@@ -1150,6 +1150,8 @@ class WhoopRepository(private val dao: WhoopDao) {
     suspend fun insertHr(rows: List<HrSample>) = dao.insertHr(rows)
 
     suspend fun latestHrSampleTs(deviceId: String): Long? = dao.latestHrSampleTs(deviceId)
+    /** Oldest banked HR ts (measured ∪ v26 PPG) — the floor the Deep Timeline's scroll-back clamps to. */
+    suspend fun earliestHrSampleTs(deviceId: String): Long? = dao.earliestHrSampleTs(deviceId)
     suspend fun latestHr(deviceId: String): HrSample? = dao.latestHr(deviceId)
     suspend fun latestBattery(deviceId: String): BatterySample? = dao.latestBattery(deviceId)
 
