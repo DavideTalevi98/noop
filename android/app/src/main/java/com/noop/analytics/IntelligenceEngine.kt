@@ -90,6 +90,21 @@ object IntelligenceEngine {
     /** Read cap per stream read , matches the Swift 200_000 bound. */
     const val STREAM_LIMIT: Int = 200_000
 
+    /** For a calendar day `[dayLo, dayHi]` that is a NON-truncated subset of the already-read night window
+     *  `[nightLo, nightHi]`, the day's samples ARE `[night]` filtered to `[dayLo, dayHi]`, so the per-day
+     *  calendar re-read of dayHr/daySteps/dayGrav is redundant (every PAST day: the night `to` is
+     *  `nextMidnight`, which ⊇ `dayEnd`). Returns that slice — or `null` when the shortcut is unsafe: TODAY's
+     *  calendar day runs past the 18h night cap (`dayHi > nightHi`), or the night read hit [STREAM_LIMIT] and
+     *  may be truncated inside the day span. The caller then reads directly. Byte-identical to the direct
+     *  read: same owner, same INCLUSIVE `[dayLo, dayHi]` bounds (matching the DAO range), same ts order (the
+     *  night list came from the SAME DAO method, so filtering preserves it). Guards are self-protecting — a
+     *  DST-shifted `dayMidnight` makes `dayHi > nightHi` and simply falls back to the read. */
+    internal fun <T> daySliceFromNight(
+        night: List<T>, nightLo: Long, nightHi: Long, dayLo: Long, dayHi: Long, ts: (T) -> Long,
+    ): List<T>? =
+        if (dayLo >= nightLo && dayHi <= nightHi && night.size < STREAM_LIMIT) night.filter { ts(it) in dayLo..dayHi }
+        else null
+
     private const val SECONDS_PER_DAY: Long = 86_400L
 
     /** Imported wearable-export source ids whose DAILY aggregates can be scored for a NOOP Charge/Rest on
@@ -453,14 +468,20 @@ object IntelligenceEngine {
             val dayEnd = dayMidnight + SECONDS_PER_DAY - 1
             // Same [owner] as the night window above (I2): the additive day totals must come from the one
             // device that owns the day, never a mix.
-            val dayHr = repo.hrSamples(owner, dayMidnight, dayEnd, STREAM_LIMIT)
-            val daySteps = repo.stepSamples(owner, dayMidnight, dayEnd, STREAM_LIMIT)
+            // dayHr/daySteps/dayGrav read the CALENDAR day, which for a PAST day is a non-truncated subset of
+            // the night window already in memory — derive them by filtering [hr]/[steps]/[grav] instead of a
+            // second DB query, falling back to a direct read for TODAY or a truncated night ([daySliceFromNight]).
+            val dayHr = daySliceFromNight(hr, from, to, dayMidnight, dayEnd) { it.ts }
+                ?: repo.hrSamples(owner, dayMidnight, dayEnd, STREAM_LIMIT)
+            val daySteps = daySliceFromNight(steps, from, to, dayMidnight, dayEnd) { it.ts }
+                ?: repo.stepSamples(owner, dayMidnight, dayEnd, STREAM_LIMIT)
             // Full calendar-day gravity for WORKOUT detection. The night window above ends at
             // dayStart+12h (≈ noon), so an afternoon/evening workout sits outside it and was only
             // detected once a later pass re-read it through the next night window , a ~day lag. This
             // [localMidnight, +24h) read (today: clamped to now by the DAO) lets the detector see the
             // whole day, so a 5 pm run shows up the same day.
-            val dayGrav = repo.gravitySamples(owner, dayMidnight, dayEnd, STREAM_LIMIT)
+            val dayGrav = daySliceFromNight(grav, from, to, dayMidnight, dayEnd) { it.ts }
+                ?: repo.gravitySamples(owner, dayMidnight, dayEnd, STREAM_LIMIT)
 
             // CONSUME (#531 / #175): the strap's OWN band sleep_state for the night window as (ts, state)
             // samples, so the H7 morning-stillness guard can confirm a borderline re-onset against the strap's

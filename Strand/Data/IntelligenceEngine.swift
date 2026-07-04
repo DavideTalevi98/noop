@@ -486,14 +486,33 @@ final class IntelligenceEngine: ObservableObject {
                 let dayEnd = dayMid + 86_400 - 1
                 // Same `owner` as the night window above (I2): the additive day totals must come from the
                 // one device that owns the day, never a mix.
-                let dayHr = (try? await store.hrSamples(deviceId: owner, from: dayMid, to: dayEnd, limit: 200_000)) ?? []
-                let daySteps = (try? await store.stepSamples(deviceId: owner, from: dayMid, to: dayEnd, limit: 200_000)) ?? []
+                // dayHr/daySteps/dayGrav read the CALENDAR day, which for a PAST day is a non-truncated subset
+                // of the night window already in memory — derive them by filtering hr/steps/grav
+                // (daySliceFromNight), falling back to a direct read for TODAY or a truncated night. Mirrors
+                // Android. (`??` can't take an `await` right-hand side, hence the explicit if/else.)
+                let dayHr: [HRSample]
+                if let s = Self.daySliceFromNight(hr, nightLo: from, nightHi: to, dayLo: dayMid, dayHi: dayEnd, ts: { $0.ts }) {
+                    dayHr = s
+                } else {
+                    dayHr = (try? await store.hrSamples(deviceId: owner, from: dayMid, to: dayEnd, limit: 200_000)) ?? []
+                }
+                let daySteps: [StepSample]
+                if let s = Self.daySliceFromNight(steps, nightLo: from, nightHi: to, dayLo: dayMid, dayHi: dayEnd, ts: { $0.ts }) {
+                    daySteps = s
+                } else {
+                    daySteps = (try? await store.stepSamples(deviceId: owner, from: dayMid, to: dayEnd, limit: 200_000)) ?? []
+                }
                 // Full calendar-day gravity for WORKOUT detection. The night window above ends at
                 // dayStart+12h (≈ noon), so an afternoon/evening workout sits outside it and was only
                 // detected once a later pass re-read it through the next night window , a ~day lag. This
                 // [localMidnight, localMidnight+24h) read (today: clamped to `now` by the store) lets the
                 // detector see the whole day, so a 5 pm run shows up on the same day.
-                let dayGrav = (try? await store.gravitySamples(deviceId: owner, from: dayMid, to: dayEnd, limit: 200_000)) ?? []
+                let dayGrav: [GravitySample]
+                if let s = Self.daySliceFromNight(grav, nightLo: from, nightHi: to, dayLo: dayMid, dayHi: dayEnd, ts: { $0.ts }) {
+                    dayGrav = s
+                } else {
+                    dayGrav = (try? await store.gravitySamples(deviceId: owner, from: dayMid, to: dayEnd, limit: 200_000)) ?? []
+                }
 
                 // CONSUME (#531 / #175): the strap's OWN band sleep_state for the night window as timestamped
                 // (ts, state) samples, so the H7 morning-stillness guard can confirm a borderline re-onset
@@ -1263,6 +1282,22 @@ final class IntelligenceEngine: ObservableObject {
             candidates.append(DayOwnerResolver.Candidate(deviceId: d.id, priority: priority, hasData: hasData))
         }
         return DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates) ?? fallbackDeviceId
+    }
+
+    /// See the Android IntelligenceEngine.daySliceFromNight. For a calendar day `[dayLo, dayHi]` that is a
+    /// NON-truncated subset of the already-read night window `[nightLo, nightHi]`, the day's samples ARE
+    /// `night` filtered to `[dayLo, dayHi]`, so the per-day calendar re-read of dayHr/daySteps/dayGrav is
+    /// redundant (every PAST day: the night `to == nextMidnight`, which ⊇ dayEnd). Returns that slice, or nil
+    /// when unsafe: TODAY's day runs past the 18h night cap (`dayHi > nightHi`), or the night read hit the
+    /// 200_000 limit and may be truncated inside the day span — the caller then reads directly. Byte-identical
+    /// to the direct read (same owner, same inclusive bounds, same ts order — the night list came from the
+    /// same store method). Guards are self-protecting: a DST-shifted dayMid makes `dayHi > nightHi` → read.
+    nonisolated static func daySliceFromNight<T>(
+        _ night: [T], nightLo: Int, nightHi: Int, dayLo: Int, dayHi: Int, ts: (T) -> Int
+    ) -> [T]? {
+        (dayLo >= nightLo && dayHi <= nightHi && night.count < 200_000)
+            ? night.filter { ts($0) >= dayLo && ts($0) <= dayHi }
+            : nil
     }
 
     /// The strap family that wrote `owner`'s skin-temp rows (#938), so the nightly funnel converts the raw
