@@ -363,33 +363,12 @@ class Backfiller(
             // destroyed while the UI reported "History synced". Classify PER FRAME (a type-50 console
             // frame decodes to 0 rows BY DESIGN and must not raise the alarm — the old chunk-level
             // isEmpty check counted it and could waste the hex sample on it; it also missed mixed chunks
-            // where one good row hid the losses). Archive the rejects durably FIRST, and only then allow
-            // the ack below. The WHOOP4 happy path (zero rejects) is unchanged.
+            // where one good row hid the losses). Archive the rejects durably before the ack below (AFTER
+            // the decoded insert — see the ordering note there). The WHOOP4 happy path (zero rejects) is unchanged.
             val rejected = rejectedHistoricalRecords(frames, family)
             // #77 family: decoded no rows AND no genuine rejects ⇒ pure console output. Tally it so a
             // completed-but-empty offload (strap not banking) is distinguishable from a caught-up sync.
             if (decoded.isEmpty && rejected.isEmpty()) onConsoleChunk()
-            if (rejected.isNotEmpty()) {
-                log(
-                    "Backfill: WARNING ${rejected.size} record frame(s) decoded to 0 rows " +
-                        "(trim=$trim) — archiving raw bytes before ack (CRC/unmapped layout)",
-                )
-                // #91 / #30: a hex sample in the strap log so an unmapped firmware's record layout can
-                // be mapped from a shared log. Dump the FULL frame (not a 64-byte prefix — v25/v26
-                // records run ~84 B and the truncated tail is exactly where the unmapped motion/HR
-                // fields sit), and sample a few more so one log carries enough records to triangulate
-                // offsets. These only ever fire for unmapped firmware.
-                rejected.take(8).forEachIndexed { i, f ->
-                    val hex = f.joinToString("") { "%02x".format(it) }
-                    log("Backfill: rejected frame[$i] ${f.size}B: $hex")
-                }
-                // Archive must be durable BEFORE the ack. A false return means a genuine write failure
-                // (NOT the archive-full case, which returns true) — hold the cursor/ack so the strap
-                // re-sends the chunk on the next offload. No data loss either way.
-                if (!rejectedSink(rejected, trim)) {
-                    return
-                }
-            }
             try {
                 val counts = repository.insert(decoded, deviceId) // DECODED FIRST (durable)
                 committed = decoded
@@ -413,6 +392,33 @@ class Backfiller(
                 // Mirrors the Swift twin's log so a write-stall is falsifiable here too.
                 log("Backfill: failed to persist decoded rows (trim=$trim): $t, holding ack so the strap re-sends this chunk; history won't advance until the write succeeds.")
                 return // do NOT advance/ack, chunk was never durably committed
+            }
+            // Archive rejected raw frames AFTER the decoded insert (matching the Swift twin, Backfiller.swift:
+            // insert then archive). Doing it after means a rare insert FAILURE returns above and re-sends the
+            // WHOLE chunk next session, so a retry can't write DUPLICATE lines into the append-only reject
+            // corpus (#91/#30) that later firmware-layout RE depends on. The rows are already durable; a
+            // failed archive here still holds the cursor/ack below (return), so the strap re-sends and the
+            // idempotent insert is a no-op while the archive retries — no data loss, no duplicate. Still
+            // durable BEFORE the ack (the ack frees the strap's copy, so the archive is then the only copy).
+            if (rejected.isNotEmpty()) {
+                log(
+                    "Backfill: WARNING ${rejected.size} record frame(s) decoded to 0 rows " +
+                        "(trim=$trim) — archiving raw bytes before ack (CRC/unmapped layout)",
+                )
+                // #91 / #30: a hex sample in the strap log so an unmapped firmware's record layout can
+                // be mapped from a shared log. Dump the FULL frame (not a 64-byte prefix — v25/v26
+                // records run ~84 B and the truncated tail is exactly where the unmapped motion/HR
+                // fields sit), and sample a few more so one log carries enough records to triangulate
+                // offsets. These only ever fire for unmapped firmware.
+                rejected.take(8).forEachIndexed { i, f ->
+                    val hex = f.joinToString("") { "%02x".format(it) }
+                    log("Backfill: rejected frame[$i] ${f.size}B: $hex")
+                }
+                // A false return means a genuine write failure (NOT the archive-full case, which returns
+                // true) — hold the cursor/ack so the strap re-sends the chunk on the next offload.
+                if (!rejectedSink(rejected, trim)) {
+                    return
+                }
             }
         }
 
