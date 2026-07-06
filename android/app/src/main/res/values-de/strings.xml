@@ -64,6 +64,11 @@
     <string name="terms_point_warranty_head">Keine Gewährleistung; Haftung begrenzt</string>
     <string name="terms_point_warranty_body">NOOP ist kostenlos und wird „wie besehen“ bereitgestellt, ohne Gewährleistung. Die Haftung ist im maximal zulässigen Umfang des für dich geltenden Rechts begrenzt, und nichts hier nimmt dir Schutz, den dein lokales Recht uns nicht zu nehmen erlaubt.</string>
     <string name="terms_footer">Die vollständigen Bedingungen stehen in TERMS.md, das mit NOOP ausgeliefert wird. Das ist keine Rechtsberatung.</string>
+    <string name="terms_attest_head">Bitte bestätige jeden dieser Punkte:</string>
+    <string name="terms_attest_not_affiliated">Ich bin kein Mitarbeiter, Auftragnehmer oder Partner von WHOOP und nutze NOOP nicht im Auftrag von WHOOP.</string>
+    <string name="terms_attest_own_device">Das WHOOP-Gerät, das ich mit NOOP verwende, gehört mir, und ich nutze es nur, um auf meine eigenen Daten zuzugreifen. Das ist meine Entscheidung und mein Risiko, einschließlich etwaiger Auswirkungen auf mein WHOOP-Konto, mein Abonnement, mein Gerät oder meine Garantie, und es kann gegen die Nutzungsbedingungen von WHOOP verstoßen.</string>
+    <string name="terms_attest_asis">Mir ist bewusst, dass NOOP inoffiziell und experimentell ist, kostenlos und „wie besehen“ ohne Gewährleistung bereitgestellt wird und weder ein Medizinprodukt noch eine medizinische Beratung darstellt.</string>
+    <string name="terms_attest_liability">Soweit gesetzlich zulässig, mache ich das NOOP-Projekt oder seine Mitwirkenden nicht für Verluste oder Schäden haftbar, die aus meiner Nutzung entstehen.</string>
     <string name="terms_checkbox">Ich habe diese Bedingungen gelesen und akzeptiere sie, und ich nutze NOOP mit meinem eigenen Gerät und meinen eigenen Daten, auf eigenes Risiko.</string>
     <string name="terms_accept">Akzeptieren &amp; fortfahren</string>
 </resources>
