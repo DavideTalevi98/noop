@@ -434,8 +434,11 @@ fun LiquidSky(hour: Double? = null, modifier: Modifier = Modifier) {
     val weather = LiquidWeatherState.mode   // #weather: reactive so the picker live-updates
     val weatherImage = rememberWeatherImage(weather)
 
-    if (reduced) {
-        // No frame loop under Reduce Motion — pose the static picture once.
+    // #weather PERF: pose the sky ONCE (no per-frame loop) under Reduce Motion OR when a weather IMAGE is
+    // shown — re-blitting a full-screen bitmap every frame behind a scrolling list stutters, and the image
+    // is static (it hides the animated breath/stars underneath anyway). Cached in the scaffold's
+    // graphicsLayer, so scroll composites a texture, not a redraw.
+    if (reduced || weatherImage != null) {
         Canvas(modifier = modifier) { renderLiquidSky(hour = h, now = 0.0, settle = settle, animate = false, weather = weather, weatherImage = weatherImage) }
         return
     }

@@ -106,20 +106,33 @@ struct LiquidSky: View {
     /// flipping it in Settings live-updates the sky.
     @AppStorage(LiquidWeather.storageKey) private var weatherRaw = LiquidWeather.clear.rawValue
 
+    /// The theme-aware canvas colour the sky dissolves into (no hard seam where sky meets page).
+    private var settleColor: Color {
+        let dark = scheme == .dark
+        return Color(.sRGB, red: dark ? 18.0 / 255.0 : 242.0 / 255.0,
+                     green: dark ? 21.0 / 255.0 : 242.0 / 255.0,
+                     blue: dark ? 24.0 / 255.0 : 247.0 / 255.0, opacity: 1)
+    }
+
+    /// PROTOTYPE (#weather): a shown weather IMAGE is static, so it doesn't need the per-frame animation —
+    /// and re-blitting a full-screen bitmap at 20fps behind a scrolling list stutters. Skip the TimelineView
+    /// when an image is present (it also hides the animated breath/stars underneath). Procedural moods and
+    /// the plain sky keep the live animation.
+    private var hasWeatherImage: Bool {
+        (LiquidWeather(rawValue: weatherRaw) ?? .clear) != .clear
+            && loadWeatherImage("weather_\(weatherRaw)") != nil
+    }
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { tl in
-            let now = liquidSeconds(tl.date)
-            let h = hour ?? liveHour()
-            // The sky must dissolve into the SAME canvas colour the body uses (theme-aware surfaceBase),
-            // so there is no hard seam where the sky meets the page — light mode made this glaring.
-            let dark = scheme == .dark
-            let settle = Color(.sRGB,
-                               red: dark ? 18.0 / 255.0 : 242.0 / 255.0,
-                               green: dark ? 21.0 / 255.0 : 242.0 / 255.0,
-                               blue: dark ? 24.0 / 255.0 : 247.0 / 255.0,
-                               opacity: 1)
+        if hasWeatherImage {
             Canvas { ctx, size in
-                render(ctx, size, hour: h, now: now, settle: settle)
+                render(ctx, size, hour: hour ?? liveHour(), now: 0, settle: settleColor)
+            }
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { tl in
+                Canvas { ctx, size in
+                    render(ctx, size, hour: hour ?? liveHour(), now: liquidSeconds(tl.date), settle: settleColor)
+                }
             }
         }
     }
