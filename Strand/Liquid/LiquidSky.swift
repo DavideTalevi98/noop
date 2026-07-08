@@ -20,6 +20,25 @@ private func hx(_ hex: UInt32) -> Color {
           blue: Double(hex & 0xff) / 255, opacity: 1)
 }
 
+/// PROTOTYPE (#weather): an optional weather MOOD layered over the time-of-day gradient. Aesthetic only —
+/// no real conditions, no location or network (NOOP stays offline). Every mode is procedural and tinted by
+/// the CURRENT sky, so a cloud at dusk reads mauve and at noon reads white. `.clear` (default) = today's look.
+enum LiquidWeather: String, CaseIterable, Identifiable {
+    case clear, hazy, overcast, rain, fog, snow
+    var id: String { rawValue }
+    static let storageKey = "liquid.weather"
+    var label: String {
+        switch self {
+        case .clear:    return "Clear"
+        case .hazy:     return "Hazy"
+        case .overcast: return "Overcast"
+        case .rain:     return "Rain"
+        case .fog:      return "Fog"
+        case .snow:     return "Snow"
+        }
+    }
+}
+
 /// The ten keyframes mirror the real app's day-cycle scenes (SceneHeroBackground),
 /// as pure gradients rather than painted art.
 let liquidSkyKeys: [LiquidSkyStop] = [
@@ -65,6 +84,9 @@ struct LiquidSky: View {
     /// the atmosphere so the sky still reads under a full-height "sky behind cards" backdrop).
     var settleStrength: Double = 1
     @Environment(\.colorScheme) private var scheme
+    /// PROTOTYPE (#weather): the selected weather mood; `.clear` by default (unchanged look). Reactive, so
+    /// flipping it in Settings live-updates the sky.
+    @AppStorage(LiquidWeather.storageKey) private var weatherRaw = LiquidWeather.clear.rawValue
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { tl in
@@ -112,6 +134,9 @@ struct LiquidSky: View {
                      with: .linearGradient(Gradient(colors: [warm.opacity(0), warm.opacity(S.warm * 0.10)]),
                                            startPoint: CGPoint(x: 0, y: h * 0.55), endPoint: CGPoint(x: 0, y: h)))
         }
+        // PROTOTYPE (#weather): the weather mood sits between the warm sheet and the stars, so clouds read
+        // under the starfield and get tinted by the same sky. No-op when clear.
+        drawLiquidWeather(&ctx, size: size, weather: LiquidWeather(rawValue: weatherRaw) ?? .clear, sky: S, now: now)
         // stars
         if S.stars > 0.01 {
             for s in liquidStars {
@@ -191,5 +216,88 @@ struct LiquidSkyStatic: View {
     private func liveHour() -> Double {
         let c = Calendar.current.dateComponents([.hour, .minute], from: Date())
         return Double(c.hour ?? 0) + Double(c.minute ?? 0) / 60
+    }
+}
+
+// MARK: - PROTOTYPE weather layers (#weather)
+//
+// Procedural weather moods over the gradient, tinted by the current sky `S` (so they read at any hour).
+// Cheap Canvas fills only — soft radial "clouds", short falling streaks for rain, drifting specks for snow,
+// gradient veils for haze/fog. Values are a FIRST PASS to tune on-device (SwiftUI Canvas can't be previewed
+// off-device). No-op when `.clear`.
+
+private func drawLiquidWeather(_ ctx: inout GraphicsContext, size: CGSize, weather: LiquidWeather,
+                               sky S: (top: Color, mid: Color, hor: Color, stars: Double, warm: Double),
+                               now: Double) {
+    guard weather != .clear else { return }
+    let w = size.width, h = size.height
+    switch weather {
+    case .clear:
+        break
+    case .hazy:
+        // A soft band of horizon-tinted haze low in the sky.
+        let band = S.hor
+        ctx.fill(Path(CGRect(x: 0, y: h * 0.5, width: w, height: h * 0.5)),
+                 with: .linearGradient(Gradient(colors: [band.opacity(0), band.opacity(0.16), band.opacity(0.04)]),
+                                       startPoint: CGPoint(x: 0, y: h * 0.5), endPoint: CGPoint(x: 0, y: h)))
+    case .overcast:
+        drawLiquidClouds(&ctx, w: w, h: h, tint: S.mid, now: now, coverage: 0.7)
+    case .rain:
+        drawLiquidClouds(&ctx, w: w, h: h, tint: S.mid, now: now, coverage: 0.85)
+        drawLiquidRain(&ctx, w: w, h: h, now: now)
+    case .fog:
+        let fog = lerpColor(S.mid, .white, 0.45)
+        ctx.fill(Path(CGRect(x: 0, y: h * 0.35, width: w, height: h * 0.65)),
+                 with: .linearGradient(Gradient(colors: [fog.opacity(0), fog.opacity(0.34)]),
+                                       startPoint: CGPoint(x: 0, y: h * 0.35), endPoint: CGPoint(x: 0, y: h)))
+    case .snow:
+        drawLiquidSnow(&ctx, w: w, h: h, now: now)
+    }
+}
+
+/// A few soft radial "clouds" drifting slowly across, tinted toward the mid-sky so they read at any hour.
+private func drawLiquidClouds(_ ctx: inout GraphicsContext, w: CGFloat, h: CGFloat, tint: Color,
+                              now: Double, coverage: Double) {
+    let cloud = lerpColor(tint, .white, 0.5)
+    // (x0, y, radiusFrac, driftSpeed) — x0/y in [0,1]; drifts right and wraps.
+    let blobs: [(x: Double, y: Double, r: Double, sp: Double)] = [
+        (0.15, 0.24, 0.30, 0.006), (0.55, 0.18, 0.36, 0.004),
+        (0.85, 0.30, 0.26, 0.008), (0.38, 0.36, 0.32, 0.005),
+    ]
+    for b in blobs {
+        let x = CGFloat((b.x + now * b.sp).truncatingRemainder(dividingBy: 1.25) - 0.1) * w
+        let y = CGFloat(b.y) * h
+        let rx = CGFloat(b.r) * w, ry = CGFloat(b.r) * w * 0.5
+        ctx.fill(Path(ellipseIn: CGRect(x: x - rx, y: y - ry, width: rx * 2, height: ry * 2)),
+                 with: .radialGradient(Gradient(colors: [cloud.opacity(coverage * 0.5), cloud.opacity(0)]),
+                                       center: CGPoint(x: x, y: y), startRadius: 0, endRadius: rx))
+    }
+}
+
+/// Short diagonal streaks falling on a loop.
+private func drawLiquidRain(_ ctx: inout GraphicsContext, w: CGFloat, h: CGFloat, now: Double) {
+    for i in 0..<70 {
+        let sx = (Double(i) * 0.61803).truncatingRemainder(dividingBy: 1)
+        let x = CGFloat(sx) * w
+        let phase = (now * 1.1 + Double(i) * 0.137).truncatingRemainder(dividingBy: 1)
+        let y = CGFloat(phase) * h
+        var p = Path()
+        p.move(to: CGPoint(x: x, y: y))
+        p.addLine(to: CGPoint(x: x - 4, y: y + 15))
+        ctx.stroke(p, with: .color(.white.opacity(0.10)), lineWidth: 1)
+    }
+}
+
+/// Drifting specks that sway as they fall — the starfield feel, brighter and moving.
+private func drawLiquidSnow(_ ctx: inout GraphicsContext, w: CGFloat, h: CGFloat, now: Double) {
+    for i in 0..<70 {
+        let sx = (Double(i) * 0.61803).truncatingRemainder(dividingBy: 1)
+        let sway = CGFloat(sin(now * 0.5 + Double(i))) * 8
+        let phase = (now * 0.05 + Double(i) * 0.11).truncatingRemainder(dividingBy: 1)
+        let x = CGFloat(sx) * w + sway
+        let y = CGFloat(phase) * h
+        let sz = CGFloat(1.4 + sx * 1.6)
+        ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: sz, height: sz)),
+                 with: .color(.white.opacity(0.55)))
     }
 }
