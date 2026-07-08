@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -22,7 +24,6 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -105,7 +106,11 @@ private fun rememberWeatherImage(weather: LiquidWeather): ImageBitmap? {
     return remember(weather) {
         @Suppress("DiscouragedApi")
         val resId = context.resources.getIdentifier("weather_${weather.raw}", "drawable", context.packageName)
-        if (resId == 0) null else ImageBitmap.imageResource(context.resources, resId)
+        if (resId == 0) return@remember null
+        // #weather PERF: decode at half res (inSampleSize=2, ~750px). The sky is a soft, stretched wash, so
+        // full res buys nothing visible but quadruples the texture memory the scrolling cards composite over.
+        val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+        BitmapFactory.decodeResource(context.resources, resId, opts)?.asImageBitmap()
     }
 }
 
