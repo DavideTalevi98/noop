@@ -6,6 +6,24 @@
 //  no blur — clean and crisp, the atmosphere of the app's header.
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+/// PROTOTYPE (#weather): load an optional weather-overlay image from the asset catalog, or nil when the
+/// asset isn't present. The weather layer draws this image (blended over the sky) when it exists and falls
+/// back to the procedural draw otherwise — so dropping `weather_<mood>` art in upgrades the look with no
+/// code change. Asset names: weather_hazy / weather_overcast / weather_rain / weather_fog / weather_snow.
+private func loadWeatherImage(_ name: String) -> Image? {
+    #if canImport(UIKit)
+    if let ui = UIImage(named: name) { return Image(uiImage: ui) }
+    #elseif canImport(AppKit)
+    if let ns = NSImage(named: name) { return Image(nsImage: ns) }
+    #endif
+    return nil
+}
 
 struct LiquidSkyStop {
     let h: Double
@@ -134,9 +152,9 @@ struct LiquidSky: View {
                      with: .linearGradient(Gradient(colors: [warm.opacity(0), warm.opacity(S.warm * 0.10)]),
                                            startPoint: CGPoint(x: 0, y: h * 0.55), endPoint: CGPoint(x: 0, y: h)))
         }
-        // PROTOTYPE (#weather): the weather mood sits between the warm sheet and the stars, so clouds read
-        // under the starfield and get tinted by the same sky. No-op when clear.
-        drawLiquidWeather(&ctx, size: size, weather: LiquidWeather(rawValue: weatherRaw) ?? .clear, sky: S, now: now)
+        // PROTOTYPE (#weather): the weather mood sits between the warm sheet and the stars, so it reads
+        // under the starfield and over the same sky. Image art when present, else the procedural draw.
+        drawWeatherLayer(&ctx, size: size, weather: LiquidWeather(rawValue: weatherRaw) ?? .clear, sky: S, now: now)
         // stars
         if S.stars > 0.01 {
             for s in liquidStars {
@@ -225,6 +243,24 @@ struct LiquidSkyStatic: View {
 // Cheap Canvas fills only — soft radial "clouds", short falling streaks for rain, drifting specks for snow,
 // gradient veils for haze/fog. Values are a FIRST PASS to tune on-device (SwiftUI Canvas can't be previewed
 // off-device). No-op when `.clear`.
+
+/// PROTOTYPE (#weather): draw the weather as ART if a `weather_<mood>` image is in the asset catalog,
+/// otherwise fall back to the procedural draw. The image is aspect-FILLED to the width, top-aligned (so the
+/// sky shows), and blended so the gradient reads through it — `.screen` lets a light cloud image lighten the
+/// sky at any hour; opacity + blend are the on-device tuning knobs once real art is in.
+private func drawWeatherLayer(_ ctx: inout GraphicsContext, size: CGSize, weather: LiquidWeather,
+                              sky S: (top: Color, mid: Color, hor: Color, stars: Double, warm: Double),
+                              now: Double) {
+    guard weather != .clear else { return }
+    if let img = loadWeatherImage("weather_\(weather.rawValue)") {
+        var wctx = ctx
+        wctx.blendMode = .screen          // TUNE: .screen / .plusLighter / .normal per the art
+        wctx.opacity = 0.85               // TUNE
+        wctx.draw(img, in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
+        return
+    }
+    drawLiquidWeather(&ctx, size: size, weather: weather, sky: S, now: now)   // procedural fallback
+}
 
 private func drawLiquidWeather(_ ctx: inout GraphicsContext, size: CGSize, weather: LiquidWeather,
                                sky S: (top: Color, mid: Color, hor: Color, stars: Double, warm: Double),

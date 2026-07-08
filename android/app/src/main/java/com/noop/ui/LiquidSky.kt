@@ -18,7 +18,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -87,6 +93,20 @@ enum class LiquidWeather(val label: String) {
 object LiquidWeatherState {
     var mode by mutableStateOf(LiquidWeather.CLEAR)
     fun init(context: Context) { mode = NoopPrefs.weather(context) }
+}
+
+/** PROTOTYPE (#weather): resolve the optional `weather_<mood>` drawable to an [ImageBitmap], or null when
+ *  the asset isn't in res/drawable (→ procedural fallback). getIdentifier returns 0 for a missing name, so
+ *  dropping the art in later upgrades the look with no code change. Decoded once per mood via remember. */
+@Composable
+private fun rememberWeatherImage(weather: LiquidWeather): ImageBitmap? {
+    if (weather == LiquidWeather.CLEAR) return null
+    val context = LocalContext.current
+    return remember(weather) {
+        @Suppress("DiscouragedApi")
+        val resId = context.resources.getIdentifier("weather_${weather.raw}", "drawable", context.packageName)
+        if (resId == 0) null else ImageBitmap.imageResource(context.resources, resId)
+    }
 }
 
 val liquidSkyKeys: List<LiquidSkyStop> = listOf(
@@ -179,6 +199,9 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.renderLiquidSky(
     settleStrength: Float = 1f,
     // PROTOTYPE (#weather): the weather mood layered over the gradient. CLEAR = no-op.
     weather: LiquidWeather = LiquidWeather.CLEAR,
+    // PROTOTYPE (#weather): optional `weather_<mood>` art. When present it's drawn (blended) instead of the
+    // procedural draw; null → procedural fallback. Resolved at the composable level (rememberWeatherImage).
+    weatherImage: ImageBitmap? = null,
 ) {
     val s = liquidSkyAt(hour)
     val w = size.width
@@ -234,10 +257,25 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.renderLiquidSky(
         )
     }
 
-    // PROTOTYPE (#weather): the weather mood sits between the warm wash and the stars, so clouds read
-    // under the starfield and are tinted by the same sky. No-op when CLEAR. `now` is 0 on the static sky,
-    // so rain/snow are frozen there but still visible; the animated Today sky drives them.
-    drawLiquidWeather(weather = weather, s = s, now = now)
+    // PROTOTYPE (#weather): weather sits between the warm wash and the stars. Image ART when present
+    // (aspect-filled to width, top-aligned, blended so the sky reads through), else the procedural draw.
+    // `now` is 0 on the static sky, so procedural rain/snow are frozen there but still visible.
+    if (weather != LiquidWeather.CLEAR && weatherImage != null) {
+        val iw = weatherImage.width
+        val ih = weatherImage.height
+        val dstH = if (iw > 0) (w * ih / iw) else h
+        drawImage(
+            image = weatherImage,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(iw, ih),
+            dstOffset = IntOffset.Zero,
+            dstSize = IntSize(w.toInt().coerceAtLeast(1), dstH.toInt().coerceAtLeast(1)),
+            alpha = 0.85f,                 // TUNE per the art
+            blendMode = BlendMode.Screen,  // TUNE: Screen / Plus / SrcOver
+        )
+    } else {
+        drawLiquidWeather(weather = weather, s = s, now = now)
+    }
 
     // Stars. Animated sky twinkles (phase-driven pow(sin,6) flare); static sky draws the base alpha only.
     if (s.stars > 0.01) {
@@ -392,10 +430,11 @@ fun LiquidSky(hour: Double? = null, modifier: Modifier = Modifier) {
     val settle = liquidSettleColor
     val h = hour ?: liquidLiveHour()
     val weather = LiquidWeatherState.mode   // #weather: reactive so the picker live-updates
+    val weatherImage = rememberWeatherImage(weather)
 
     if (reduced) {
         // No frame loop under Reduce Motion — pose the static picture once.
-        Canvas(modifier = modifier) { renderLiquidSky(hour = h, now = 0.0, settle = settle, animate = false, weather = weather) }
+        Canvas(modifier = modifier) { renderLiquidSky(hour = h, now = 0.0, settle = settle, animate = false, weather = weather, weatherImage = weatherImage) }
         return
     }
 
@@ -413,7 +452,7 @@ fun LiquidSky(hour: Double? = null, modifier: Modifier = Modifier) {
     }
 
     Canvas(modifier = modifier) {
-        renderLiquidSky(hour = h, now = seconds, settle = settle, animate = true, weather = weather)
+        renderLiquidSky(hour = h, now = seconds, settle = settle, animate = true, weather = weather, weatherImage = weatherImage)
     }
 }
 
@@ -432,8 +471,9 @@ fun LiquidSkyStatic(hour: Double? = null, modifier: Modifier = Modifier, settleS
     val settle = liquidSettleColor
     val h = hour ?: liquidLiveHour()
     val weather = LiquidWeatherState.mode   // #weather
+    val weatherImage = rememberWeatherImage(weather)
     Canvas(modifier = modifier) {
-        renderLiquidSky(hour = h, now = 0.0, settle = settle, animate = false, settleStrength = settleStrength, weather = weather)
+        renderLiquidSky(hour = h, now = 0.0, settle = settle, animate = false, settleStrength = settleStrength, weather = weather, weatherImage = weatherImage)
     }
 }
 
