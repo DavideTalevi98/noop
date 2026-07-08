@@ -758,12 +758,12 @@ private fun GlassBottomBar(
     ) {
         Surface(
             shape = barShape,
-            // "Glass": a translucent raised surface — a frosted island, not a hard slab. Compose has no
-            // cheap blur, so translucency (≈0.80) + a hairline rim is the Liquid-Glass stand-in. A soft,
-            // low drop shadow reads as floating without a glow.
-            color = Palette.surfaceRaised.copy(alpha = 0.80f),
-            tonalElevation = 2.dp,
-            shadowElevation = 4.dp,
+            // #86: NO fill. The dark translucent fill read as a solid "bar" behind the tabs; the content
+            // should show straight through. Keep the pill SHAPE via the hairline outline only (a floating
+            // capsule of tabs over the content), no fill and no drop shadow (which also read as a slab).
+            color = Color.Transparent,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 // Cap the width so the pill stays a centred floating island on tablets, not a full-bleed bar.
