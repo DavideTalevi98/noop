@@ -264,14 +264,16 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.renderLiquidSky(
         val iw = weatherImage.width
         val ih = weatherImage.height
         val dstH = if (iw > 0) (w * ih / iw) else h
+        // Normal (SrcOver) is the universal default: an OPAQUE scene (e.g. a storm sky) covers the gradient,
+        // a TRANSPARENT overlay shows the gradient through its alpha. TUNE per art. (#weather)
         drawImage(
             image = weatherImage,
             srcOffset = IntOffset.Zero,
             srcSize = IntSize(iw, ih),
             dstOffset = IntOffset.Zero,
             dstSize = IntSize(w.toInt().coerceAtLeast(1), dstH.toInt().coerceAtLeast(1)),
-            alpha = 0.85f,                 // TUNE per the art
-            blendMode = BlendMode.Screen,  // TUNE: Screen / Plus / SrcOver
+            alpha = 0.9f,                  // TUNE per the art
+            blendMode = BlendMode.SrcOver,
         )
     } else {
         drawLiquidWeather(weather = weather, s = s, now = now)

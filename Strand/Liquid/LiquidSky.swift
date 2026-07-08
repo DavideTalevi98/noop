@@ -254,8 +254,10 @@ private func drawWeatherLayer(_ ctx: inout GraphicsContext, size: CGSize, weathe
     guard weather != .clear else { return }
     if let img = loadWeatherImage("weather_\(weather.rawValue)") {
         var wctx = ctx
-        wctx.blendMode = .screen          // TUNE: .screen / .plusLighter / .normal per the art
-        wctx.opacity = 0.85               // TUNE
+        // Normal (source-over) is the universal default: an OPAQUE scene (e.g. a storm sky) covers the
+        // gradient, and a TRANSPARENT overlay shows the gradient through its alpha. opacity lets the sky
+        // bleed at the edges. TUNE per art: .plusLighter/.screen only suit art on a black field. (#weather)
+        wctx.opacity = 0.9
         wctx.draw(img, in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
         return
     }

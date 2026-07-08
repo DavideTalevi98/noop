@@ -43,4 +43,4 @@ required).
 
 | File | Source | License |
 |------|--------|---------|
-| _(none yet)_ | | |
+| `weather_rain.png` (1500×1000) | ⚠️ **TO CONFIRM** — supplied for the prototype; provenance not yet recorded | ⚠️ **TO CONFIRM before this ships/merges** |
