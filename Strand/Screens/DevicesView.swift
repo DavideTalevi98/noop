@@ -56,6 +56,7 @@ private struct DevicesContent: View {
     @State private var renameDraft = ""
     @State private var removeTarget: PairedDevice?
     @State private var deleteDataTarget: PairedDevice?
+    @State private var rebootTarget: PairedDevice?
     /// After removing the ACTIVE device with other devices still paired, prompt to pick a new active one.
     @State private var pickNewActive = false
 
@@ -102,7 +103,8 @@ private struct DevicesContent: View {
                     liveClockWarning: device.status == .active ? strapClockState?.warning : nil,
                     onMakeActive: { switchTarget = device },
                     onRename: { renameDraft = device.nickname ?? device.displayName; renameTarget = device },
-                    onRemove: { removeTarget = device })
+                    onRemove: { removeTarget = device },
+                    onReboot: { rebootTarget = device })
                     .staggeredAppear(index: idx)
             }
 
@@ -156,6 +158,16 @@ private struct DevicesContent: View {
             Button("Remove", role: .destructive) { confirmRemove(device) }
         } message: { device in
             Text("Remove \(device.displayName)? NOOP will stop connecting to it. Its recorded data is kept and you can re-add it any time.")
+        }
+        // Restart strap confirm (#166)
+        .alert("Restart this strap?",
+               isPresented: Binding(get: { rebootTarget != nil },
+                                    set: { if !$0 { rebootTarget = nil } }),
+               presenting: rebootTarget) { _ in
+            Button("Cancel", role: .cancel) { rebootTarget = nil }
+            Button("Restart") { model.rebootStrap(); rebootTarget = nil }
+        } message: { device in
+            Text("Restart \(device.displayName)? It disconnects for about 30 seconds while it reboots, then reconnects on its own. Your recorded data is kept. On WHOOP 5.0/MG this is experimental — if it doesn't restart, your strap log helps us confirm the command.")
         }
         // Second, strongly-worded delete-data confirm (reached from the Remove card's secondary control)
         .alert("Delete all of this device's data?",
@@ -292,6 +304,9 @@ private struct DeviceCard: View {
     var onMakeActive: () -> Void
     var onRename: () -> Void
     var onRemove: (() -> Void)?
+    /// Restart the strap (WHOOP-only, connected-only; confirmation-gated by the parent). nil for a
+    /// non-WHOOP source or a device that isn't the live-connected one. (#166)
+    var onReboot: (() -> Void)? = nil
     /// Removed-section affordances (re-add as active / delete its data).
     var onReAdd: (() -> Void)? = nil
     var onDeleteData: (() -> Void)? = nil
@@ -492,6 +507,11 @@ private struct DeviceCard: View {
                     Button { onMakeActive() } label: { Label("Make active", systemImage: "bolt.fill") }
                 }
                 Button { onRename() } label: { Label("Rename", systemImage: "pencil") }
+                // Restart the strap — only for the live-connected WHOOP (the reboot travels over the active
+                // BLE link). Confirmation-gated by the parent. (#166)
+                if isLiveConnected, SourceCoordinator.isWhoop(device), let onReboot {
+                    Button { onReboot() } label: { Label("Restart strap…", systemImage: "arrow.clockwise") }
+                }
                 if let onRemove {
                     Divider()
                     Button(role: .destructive) { onRemove() } label: {
