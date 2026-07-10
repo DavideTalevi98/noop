@@ -37,15 +37,13 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// at-root re-tap of the active tab (#198 follow-up). Default 0 never changes, so macOS and every
     /// non-tab screen keep their exact prior scroll behaviour.
     @Environment(\.scrollToTopSignal) private var scrollToTopSignal
-    /// Zero-height first child of the scroll content, the scroll-to-top target.
-    private static let topAnchorID = "screenScaffold.top"
 
     var body: some View {
         ScrollViewReader { proxy in
         ScrollView {
             // Scroll-to-top anchor (#198 follow-up): a zero-height marker pinned above the content so an
             // at-root tab re-tap can bring the screen back to the very top. Layout-neutral.
-            Color.clear.frame(height: 0).id(Self.topAnchorID)
+            Color.clear.frame(height: 0).id(screenScaffoldTopAnchorID)
             column
             #if os(iOS)
             // Unified side margins matching the liquid home (16pt) so every page's cards + header line up
@@ -92,7 +90,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         // Scroll-to-top on an at-root tab re-tap (#198 follow-up). iOS-only: the tab shell is the only
         // driver, and gating here keeps the two-param onChange off macOS 13. Inert until the signal moves.
         .onChange(of: scrollToTopSignal) { _, _ in
-            withAnimation(.easeOut(duration: 0.35)) { proxy.scrollTo(Self.topAnchorID, anchor: .top) }
+            withAnimation(.easeOut(duration: 0.35)) { proxy.scrollTo(screenScaffoldTopAnchorID, anchor: .top) }
         }
         #endif
         }
@@ -262,6 +260,10 @@ struct DataPendingNote: View {
 /// unserved — an at-root re-tap is otherwise a no-op). `ScreenScaffold` and `LiquidTodayView` observe it
 /// and scroll to their top anchor when it changes. Default 0 is never bumped outside the tab shell, so
 /// macOS (sidebar, no tab re-tap) and every non-tab screen are completely unaffected.
+/// Zero-height scroll-to-top target id. File scope, not a `static` on `ScreenScaffold` — the latter is
+/// generic (`<Content, Trailing>`) and Swift forbids stored static properties on generic types.
+private let screenScaffoldTopAnchorID = "screenScaffold.top"
+
 private struct ScrollToTopSignalKey: EnvironmentKey {
     static let defaultValue: Int = 0
 }
