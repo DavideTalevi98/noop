@@ -2383,6 +2383,9 @@ class WhoopBleClient(
             log("reboot: connect + bond first — ignored (connected=${_state.value.connected} bonded=${_state.value.bonded})")
             return
         }
+        // Supersede any still-pending reboot (cancels its timers + resets the flag) so a repeat tap can't
+        // leave a stale watchdog/settle timer that fires during this new reboot's window.
+        clearRebootState()
         val framing = if (family == DeviceFamily.WHOOP5) "puffin-crc16 (UNVERIFIED on 5/MG)" else "harvard-crc8"
         val fw = _state.value.strapFirmware ?: "unknown"
         log("reboot: request family=$family fw=$fw connected=true bonded=true")

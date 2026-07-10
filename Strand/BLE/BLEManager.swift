@@ -2212,6 +2212,9 @@ public final class BLEManager: NSObject, ObservableObject {
             log("reboot: connect + bond first — ignored (connected=\(state.connected) bonded=\(state.bonded))")
             return
         }
+        // Supersede any still-pending reboot (cancels its timers + resets the flag) so a repeat tap can't
+        // leave a stale watchdog/settle timer that fires during this new reboot's window.
+        clearRebootState()
         let framing = family == .whoop5 ? "puffin-crc16 (UNVERIFIED on 5/MG)" : "harvard-crc8"
         let fw = state.strapFirmware ?? "unknown"
         log("reboot: request family=\(family) fw=\(fw) connected=true bonded=true")
