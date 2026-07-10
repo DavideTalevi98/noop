@@ -157,6 +157,8 @@ fun DevicesScreen(
                 device = device,
                 isActive = device.status == DeviceStatus.active.name,
                 isLiveConnected = device.status == DeviceStatus.active.name && live.connected,
+                // Reboot in flight + link currently down → "Reconnecting…" (#166).
+                isReconnecting = device.status == DeviceStatus.active.name && live.rebootInProgress && !live.connected,
                 // The live battery belongs to whichever device is ACTIVE + connected (WHOOP, a generic
                 // strap, or an FTMS machine all funnel into live.batteryPct). null otherwise.
                 liveBatteryPct = if (device.status == DeviceStatus.active.name && live.connected)
@@ -317,6 +319,9 @@ private fun DeviceCard(
     device: PairedDeviceRow,
     isActive: Boolean,
     isLiveConnected: Boolean,
+    /** The active strap's link dropped for a user-initiated reboot and NOOP is auto-reconnecting (#166).
+     *  Drives the transient "Reconnecting…" pill; false for every non-reboot state. */
+    isReconnecting: Boolean = false,
     dimmed: Boolean = false,
     /** The active+connected device's live battery percent (0–100) — surfaced the same way for WHOOP, a
      *  generic strap, or an FTMS machine. null when not active/connected or no battery was reported. */
@@ -378,7 +383,7 @@ private fun DeviceCard(
                     StatePill("Beta", tone = StrandTone.Warning, showsDot = false)
                     Spacer(Modifier.width(6.dp))
                 }
-                StatePill(device, isActive, isLiveConnected)
+                StatePill(device, isActive, isLiveConnected, isReconnecting)
             }
 
             // Honest local-takeover state row for an adopted Oura ring that is paired but not the
@@ -483,10 +488,19 @@ private fun BatteryTube(pct: Int) {
 }
 
 @Composable
-private fun StatePill(device: PairedDeviceRow, isActive: Boolean, isLiveConnected: Boolean) {
+private fun StatePill(
+    device: PairedDeviceRow,
+    isActive: Boolean,
+    isLiveConnected: Boolean,
+    isReconnecting: Boolean = false,
+) {
     when {
         device.status == DeviceStatus.archived.name ->
             StatePill("Removed", tone = StrandTone.Neutral, showsDot = false)
+        // Reboot window (#166): the user's Restart dropped the link and NOOP is auto-reconnecting. Show it
+        // as intentional rather than a silent drop to "Active"; clears to "Active · Live" once the link is back.
+        isActive && isReconnecting ->
+            StatePill("Reconnecting…", tone = StrandTone.Warning, pulsing = true)
         isActive ->
             StatePill(
                 if (isLiveConnected) "Active · Live" else "Active",

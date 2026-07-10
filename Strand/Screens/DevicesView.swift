@@ -92,6 +92,8 @@ private struct DevicesContent: View {
                     device: device,
                     isActive: device.status == .active,
                     isLiveConnected: device.status == .active && live.connected,
+                    // Reboot in flight + link currently down → "Reconnecting…" (#166).
+                    isReconnecting: device.status == .active && live.rebootInProgress && !live.connected,
                     // The live battery belongs to whichever device is ACTIVE + connected (the WHOOP, a
                     // generic strap, or an FTMS machine all funnel into live.batteryPct). nil otherwise.
                     liveBatteryPct: (device.status == .active && live.connected) ? live.batteryPct.map { Int($0.rounded()) } : nil,
@@ -286,6 +288,9 @@ private struct DeviceCard: View {
     let device: PairedDevice
     let isActive: Bool
     let isLiveConnected: Bool
+    /// The active strap's link dropped for a user-initiated reboot and NOOP is auto-reconnecting (#166).
+    /// Drives the transient "Reconnecting…" pill; false for every non-reboot state.
+    var isReconnecting: Bool = false
     /// The active+connected device's live battery percent (0–100), surfaced on the card the same way
     /// for WHOOP, a generic strap, or an FTMS machine. nil when not the active/connected device or
     /// the source hasn't reported a battery (e.g. a strap/machine without the 0x180F service).
@@ -481,8 +486,15 @@ private struct DeviceCard: View {
             if device.status == .archived {
                 StatePill("Removed", tone: .neutral, showsDot: false)
             } else if isActive {
-                StatePill(isLiveConnected ? "Active · Live" : "Active",
-                          tone: .positive, pulsing: isLiveConnected)
+                // Reboot window (#166): the user's Restart dropped the link and NOOP is auto-reconnecting.
+                // Show it as intentional rather than a silent drop to "Active"; clears to "Active · Live"
+                // the instant the link is back.
+                if isReconnecting {
+                    StatePill("Reconnecting…", tone: .warning, pulsing: true)
+                } else {
+                    StatePill(isLiveConnected ? "Active · Live" : "Active",
+                              tone: .positive, pulsing: isLiveConnected)
+                }
             } else {
                 StatePill("Paired", tone: .neutral)
             }

@@ -123,6 +123,10 @@ data class LiveState(
      *  Devices card. Null until the handshake response decodes. The Swift WhoopProtocol decodes the
      *  same fields; this is the Android send → state → UI wiring. */
     val strapFirmware: String? = null,
+    /** True while a user-initiated reboot (#166) is in flight — from sending REBOOT_STRAP until the strap
+     *  reconnects (or the settle timeout gives up). With `!connected` it drives the Devices card's
+     *  transient "Reconnecting…" pill. Twin of macOS LiveState.rebootInProgress. */
+    val rebootInProgress: Boolean = false,
     /** Charging flag from BATTERY_LEVEL events — wire observation: u8 bit0 (4.0 @26 / 5.0 @30,
      *  ~every 8 min on captured links). Flag only; battery % keeps its family source (#77).
      *  Cleared on disconnect so a stale flag can't outlive the link. Twin of macOS
@@ -2353,6 +2357,17 @@ class WhoopBleClient(
      *  BLEManager.rebootRequestedAt. */
     private var rebootRequestedAtMs: Long? = null
     private var rebootWatchdog: Runnable? = null
+    private var rebootSettle: Runnable? = null
+
+    /** Clear all reboot-in-flight state: the pending timestamp, both timers, and the `rebootInProgress`
+     *  flag that drives the Devices "Reconnecting…" pill. Called from every terminal path (reconnect,
+     *  no-disconnect, settle backstop) so the pill can never wedge. Twin of macOS clearRebootState. */
+    private fun clearRebootState() {
+        rebootRequestedAtMs = null
+        rebootWatchdog?.let { handler.removeCallbacks(it) }; rebootWatchdog = null
+        rebootSettle?.let { handler.removeCallbacks(it) }; rebootSettle = null
+        if (_state.value.rebootInProgress) _state.update { it.copy(rebootInProgress = false) }
+    }
 
     /**
      * Restart the connected strap (REBOOT_STRAP / opcode 29, empty body). Non-destructive: the strap keeps
@@ -2375,6 +2390,9 @@ class WhoopBleClient(
         // Empty body per the official app's builder. withResponse so the ATT write is acked before the drop.
         send(CommandNumber.REBOOT_STRAP, byteArrayOf(), withResponse = true)
         rebootRequestedAtMs = SystemClock.elapsedRealtime()
+        // Drive the Devices "Reconnecting…" pill: true until the strap reconnects (or a terminal path
+        // clears it). The pill only shows it once the link actually drops (it gates on !connected).
+        _state.update { it.copy(rebootInProgress = true) }
         rebootWatchdog?.let { handler.removeCallbacks(it) }
         // No-disconnect watchdog: still connected after 12s ⇒ the strap didn't act on the command (the key
         // signal that a 5/MG puffin reboot frame was silently rejected). A real reboot drops within ~1-2s.
@@ -2382,11 +2400,22 @@ class WhoopBleClient(
             if (rebootRequestedAtMs != null && _state.value.connected) {
                 log("reboot: no disconnect within 12s — strap may have ignored the command" +
                     if (connectedFamily == DeviceFamily.WHOOP5) " (5/MG puffin framing is unverified — please share this log on #166)" else "")
-                rebootRequestedAtMs = null
+                clearRebootState()
             }
         }
         rebootWatchdog = work
         handler.postDelayed(work, 12_000)
+        // Absolute settle backstop: if the reboot never resolves (link dropped but the strap never comes
+        // back), clear the pill after 60s so it can't wedge on "Reconnecting…". A normal reboot+reconnect
+        // clears it earlier via noteRebootReconnectIfNeeded.
+        val settle = Runnable {
+            if (_state.value.rebootInProgress) {
+                log("reboot: not settled within 60s — clearing the reconnecting state")
+                clearRebootState()
+            }
+        }
+        rebootSettle = settle
+        handler.postDelayed(settle, 60_000)
     }
 
     /** Closes the reboot trail: when the connect handshake completes and a reboot was in flight, log the
@@ -2395,10 +2424,8 @@ class WhoopBleClient(
     private fun noteRebootReconnectIfNeeded() {
         val t = rebootRequestedAtMs ?: return
         val s = (SystemClock.elapsedRealtime() - t) / 1000.0
-        rebootRequestedAtMs = null
-        rebootWatchdog?.let { handler.removeCallbacks(it) }
-        rebootWatchdog = null
         log("reboot: reconnected %.1fs after send — round trip complete".format(s))
+        clearRebootState()   // clears the "Reconnecting…" pill → back to "Active · Live"
     }
 
     /**

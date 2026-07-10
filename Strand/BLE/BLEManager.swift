@@ -2182,6 +2182,17 @@ public final class BLEManager: NSObject, ObservableObject {
     /// so a "restart did nothing" report — especially on the unverified 5/MG framing — is triageable.
     private var rebootRequestedAt: DispatchTime?
     private var rebootTimeoutWork: DispatchWorkItem?
+    private var rebootSettleWork: DispatchWorkItem?
+
+    /// Clear all reboot-in-flight state: the pending timestamp, both timers, and the `rebootInProgress`
+    /// flag that drives the Devices "Reconnecting…" pill. Called from every terminal path (reconnect,
+    /// no-disconnect, settle backstop) so the pill can never wedge.
+    private func clearRebootState() {
+        rebootRequestedAt = nil
+        rebootTimeoutWork?.cancel(); rebootTimeoutWork = nil
+        rebootSettleWork?.cancel(); rebootSettleWork = nil
+        if state.rebootInProgress { state.rebootInProgress = false }
+    }
 
     /// Restart the connected strap (REBOOT_STRAP / opcode 29, empty body). Non-destructive: the strap keeps
     /// its stored data and re-advertises after boot, but the BLE link drops and NOOP auto-reconnects. Gated
@@ -2209,6 +2220,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // acknowledged at the ATT layer before the strap drops the link.
         send(.rebootStrap, payload: [], writeType: .withResponse)
         rebootRequestedAt = .now()
+        // Drive the Devices "Reconnecting…" pill: true from here until the strap reconnects (or a terminal
+        // path clears it). The pill only shows it once the link actually drops (it gates on !connected).
+        state.rebootInProgress = true
         // No-disconnect watchdog: if the link is still up after 12 s the strap didn't act on the command —
         // the key signal that a 5/MG puffin reboot frame was silently rejected. (A real reboot drops the
         // link within a second or two.) Cancelled by didDisconnectPeripheral when the reboot takes.
@@ -2216,10 +2230,20 @@ public final class BLEManager: NSObject, ObservableObject {
             guard let self, self.rebootRequestedAt != nil, self.state.connected else { return }
             self.log("reboot: no disconnect within 12s — strap may have ignored the command"
                      + (self.selectedModel.deviceFamily == .whoop5 ? " (5/MG puffin framing is unverified — please share this log on #166)" : ""))
-            self.rebootRequestedAt = nil
+            self.clearRebootState()
         }
         rebootTimeoutWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(12), execute: work)
+        // Absolute settle backstop: if the reboot never resolves (link dropped but the strap never comes
+        // back), clear the pill after 60 s so it can't wedge on "Reconnecting…". A normal reboot+reconnect
+        // completes well inside this and clears it earlier via noteRebootReconnectIfNeeded.
+        let settle = DispatchWorkItem { [weak self] in
+            guard let self, self.state.rebootInProgress else { return }
+            self.log("reboot: not settled within 60s — clearing the reconnecting state")
+            self.clearRebootState()
+        }
+        rebootSettleWork = settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(60), execute: settle)
     }
 
     /// Closes the reboot trail: when the connect handshake completes and a reboot was in flight, log the
@@ -2227,9 +2251,8 @@ public final class BLEManager: NSObject, ObservableObject {
     private func noteRebootReconnectIfNeeded() {
         guard let t = rebootRequestedAt else { return }
         let s = Double(DispatchTime.now().uptimeNanoseconds &- t.uptimeNanoseconds) / 1_000_000_000
-        rebootRequestedAt = nil
-        rebootTimeoutWork?.cancel(); rebootTimeoutWork = nil
         log(String(format: "reboot: reconnected %.1fs after send — round trip complete", s))
+        clearRebootState()   // clears the "Reconnecting…" pill → back to "Active · Live"
     }
 
     private func startKeepAlive() {
