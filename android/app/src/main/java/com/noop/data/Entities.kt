@@ -8,10 +8,11 @@ import androidx.room.Index
  * Room entities mirroring the verified GRDB schema in
  * Packages/WhoopStore/Sources/WhoopStore/Database.swift (+ MetricsCache.swift).
  *
- * Natural keys are preserved EXACTLY so insert dedupe (OnConflictStrategy.IGNORE)
- * behaves identically to the Swift `ON CONFLICT(...) DO NOTHING` upserts:
+ * Natural keys mirror the Swift `ON CONFLICT(...) DO NOTHING` upserts so insert dedupe behaves
+ * identically, with ONE deliberate exception (see the RrInterval doc):
  *   - hrSample        PK (deviceId, ts)
- *   - rrInterval      PK (deviceId, ts, rrMs)
+ *   - rrInterval      PK (deviceId, ts, rrMs, seq)  // v18: seq tiebreaks EQUAL same-second beats;
+ *                                                   // Swift key is still (deviceId, ts, rrMs) — needs it too
  *   - event           PK (deviceId, ts, kind)
  *   - battery         PK (deviceId, ts)
  *   - spo2Sample      PK (deviceId, ts)
@@ -82,12 +83,26 @@ data class HrWindowStats(
     val max: Int?,
 )
 
-/** R-R interval. Swift `rrInterval` (v1). PK (deviceId, ts, rrMs), multiple R-R per ts. */
-@Entity(tableName = "rrInterval", primaryKeys = ["deviceId", "ts", "rrMs"])
+/**
+ * R-R interval. Swift `rrInterval` (v1); the Room key is widened in v18 to (deviceId, ts, rrMs, seq).
+ * `seq` distinguishes two EQUAL R-R intervals that fall in the same 1-second `ts` bucket: the old
+ * value-only key (deviceId, ts, rrMs) + IGNORE-on-conflict dropped the second of an equal pair, removing
+ * a zero-difference beat and biasing RMSSD/HRV HIGH — worst at rest/sleep, which is exactly when HRV is
+ * scored. `seq` numbers equal (ts, rrMs) beats 0, 1, … so both keep a row; DISTINCT intervals keep seq 0
+ * and their own slot, so no distinct beat is ever dropped (across insert batches or the live/historical
+ * merge — rrMs stays in the key). `seq` is declared BEFORE `synced` so Room's generated column order
+ * matches the v18 rebuild migration exactly.
+ *
+ * PARITY: this diverges from the Swift `rrInterval` key (still deviceId, ts, rrMs). The identical
+ * value-key drop exists in WhoopStore (Database.swift / StreamStore / Reads) and needs the same widening
+ * to keep Android and iOS HRV identical — a required follow-up. Bug + Android approach: #163 (@tanarchytan).
+ */
+@Entity(tableName = "rrInterval", primaryKeys = ["deviceId", "ts", "rrMs", "seq"])
 data class RrInterval(
     val deviceId: String,
     val ts: Long,
     val rrMs: Int,
+    val seq: Int = 0,
     val synced: Int = 0,
 )
 

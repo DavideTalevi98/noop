@@ -233,8 +233,10 @@ interface WhoopDao : DeviceRegistryDao {
     suspend fun hrWindowStats(deviceId: String, from: Long, to: Long): HrWindowStats
 
     @Query(
+        // ts, rrMs matches Swift Reads.swift; seq only orders the rare EQUAL same-second beats among
+        // themselves (identical rrMs → zero successive diff either way), so RMSSD stays order-invariant (v18).
         "SELECT * FROM rrInterval WHERE deviceId = :deviceId AND ts >= :from AND ts <= :to " +
-            "ORDER BY ts ASC, rrMs ASC LIMIT :limit"
+            "ORDER BY ts ASC, rrMs ASC, seq ASC LIMIT :limit"
     )
     suspend fun rrIntervals(deviceId: String, from: Long, to: Long, limit: Int): List<RrInterval>
 

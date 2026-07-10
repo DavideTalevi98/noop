@@ -48,7 +48,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LabMarkerRow::class,
         LiveSessionRow::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class WhoopDatabase : RoomDatabase() {
@@ -446,6 +446,40 @@ abstract class WhoopDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v17 -> v18: REBUILD `rrInterval` to widen its PK from (deviceId, ts, rrMs) to
+         * (deviceId, ts, rrMs, seq) — the first non-additive migration in this DB. The value-only key +
+         * IGNORE-on-conflict silently dropped the second of two EQUAL successive R-R intervals in one
+         * 1-second `ts` bucket, deleting a zero-difference beat and biasing RMSSD/HRV high at rest/sleep
+         * (when HRV is scored). `seq` distinguishes equal (ts, rrMs) beats; distinct beats keep seq 0.
+         *
+         * A PK change needs a table rebuild (SQLite can't ALTER a PK) but is LOSS-LESS: every row is copied
+         * with seq = 0, which is exact because the OLD PK guaranteed a unique (deviceId, ts, rrMs) per row,
+         * so seq 0 never collides. No window functions (minSdk-26 SQLite lacks ROW_NUMBER). The rebuilt
+         * table's column order + PK MUST equal Room's generated v18 schema for [RrInterval] exactly —
+         * columns (deviceId, ts, rrMs, seq, synced), PK (deviceId, ts, rrMs, seq) — or the
+         * no-destructive-fallback open throws. `seq` is declared before `synced` in the entity so the
+         * orders match. Forward-only: beats already dropped under the old key can't be recovered, so this
+         * does NOT retroactively fix historical HRV; only inserts after the upgrade stop dropping equal
+         * beats. Exposed as [RR_SEQ_MIGRATION_SQL] and pinned by [com.noop.data.RrSeqMigrationTest].
+         * Diagnosis + approach from #163 (@tanarchytan).
+         */
+        internal val RR_SEQ_MIGRATION_SQL: List<String> = listOf(
+            "CREATE TABLE IF NOT EXISTS `rrInterval_new` (`deviceId` TEXT NOT NULL, `ts` INTEGER NOT NULL, " +
+                "`rrMs` INTEGER NOT NULL, `seq` INTEGER NOT NULL, `synced` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`deviceId`, `ts`, `rrMs`, `seq`))",
+            "INSERT INTO `rrInterval_new` (`deviceId`, `ts`, `rrMs`, `seq`, `synced`) " +
+                "SELECT `deviceId`, `ts`, `rrMs`, 0, `synced` FROM `rrInterval`",
+            "DROP TABLE `rrInterval`",
+            "ALTER TABLE `rrInterval_new` RENAME TO `rrInterval`",
+        )
+
+        internal val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (stmt in RR_SEQ_MIGRATION_SQL) db.execSQL(stmt)
+            }
+        }
+
         private fun build(appContext: Context): WhoopDatabase =
             Room.databaseBuilder(appContext, WhoopDatabase::class.java, DB_NAME)
                 // #1014: replace ONLY the corruption handling of the default open-helper. The
@@ -460,7 +494,7 @@ abstract class WhoopDatabase : RoomDatabase() {
                     MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                     MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
                     MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
-                    MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
+                    MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
                 )
                 // #1037: a FRESH install builds the schema straight at the current version and runs NO
                 // migrations, so the MIGRATION_7_8 "my-whoop" registry seed never fires and the WHOOP,
