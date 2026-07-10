@@ -700,13 +700,18 @@ private struct LiveHeaderStats: View {
     /// #218: an Oura ring streams live HR WITHOUT a WHOOP bond, so `activeConnection` (which needs the bond)
     /// is false for it and the wear stat read "—" mid-stream. A live HR stream is itself the wear signal
     /// (Oura only emits PPG HR while worn). `streamingLiveHR` is Oura-only, so this never widens WHOOP.
-    private var liveLink: Bool { activeConnection || (live.connected && live.streamingLiveHR) }
+    private var ringStreaming: Bool { live.connected && live.streamingLiveHR }
+    private var liveLink: Bool { activeConnection || ringStreaming }
+    /// A streaming Oura ring is definitionally worn (PPG needs skin contact), and `worn` isn't reset on a
+    /// source switch — so a stale `worn=false` from a prior WHOOP WRIST_OFF must not read "Off wrist"
+    /// mid-stream. For WHOOP `ringStreaming` is always false, so this is just `live.worn`. #218.
+    private var wornNow: Bool { live.worn || ringStreaming }
 
     var body: some View {
         HStack(spacing: 16) {
             stat(String(localized: "Device"), deviceName)
             stat(String(localized: "Battery"), live.batteryPct.map { "\(Int($0))%" } ?? "—")
-            stat(String(localized: "Worn"), liveLink ? (live.worn ? String(localized: "Yes") : String(localized: "No")) : "—")
+            stat(String(localized: "Worn"), liveLink ? (wornNow ? String(localized: "Yes") : String(localized: "No")) : "—")
             stat(String(localized: "Last sync"), lastSyncLabel)
         }
     }
@@ -962,6 +967,10 @@ private struct LiveSignalTrustRail: View {
     /// #218: a live link for the wear stat = a WHOOP bond OR an Oura HR stream. Oura streams only while worn
     /// (PPG needs skin contact) and stops when removed, so `ringStreaming` doubles as its wear signal.
     private var liveLink: Bool { activeConnection || ringStreaming }
+    /// Streaming ⟹ worn: keeps a stale `worn=false` (from a prior WHOOP WRIST_OFF, never reset on a source
+    /// switch) from reading "Off wrist" while an Oura ring streams. For WHOOP `ringStreaming` is always
+    /// false, so this is just `live.worn`. #218.
+    private var wornNow: Bool { live.worn || ringStreaming }
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)],
@@ -1040,11 +1049,11 @@ private struct LiveSignalTrustRail: View {
             // when removed), so the stream itself is the wear signal; `worn` stays at its default true for
             // Oura until its WEAR_EVENT is wired to `worn` (follow-up).
             .init(title: String(localized: "Wear state"),
-                  value: liveLink ? (live.worn ? String(localized: "On wrist") : String(localized: "Off wrist")) : String(localized: "Unknown"),
-                  detail: liveLink ? (live.worn ? String(localized: "Eligible for live physiology") : String(localized: "Wear the strap for scoring")) : String(localized: "Connect to read wear state"),
+                  value: liveLink ? (wornNow ? String(localized: "On wrist") : String(localized: "Off wrist")) : String(localized: "Unknown"),
+                  detail: liveLink ? (wornNow ? String(localized: "Eligible for live physiology") : String(localized: "Wear the strap for scoring")) : String(localized: "Connect to read wear state"),
                   icon: "sensor.tag.radiowaves.forward",
-                  tint: !liveLink ? StrandPalette.textTertiary : live.worn ? StrandPalette.accent : StrandPalette.statusWarning,
-                  frac: !liveLink ? nil : (live.worn ? 1 : 0.25))
+                  tint: !liveLink ? StrandPalette.textTertiary : wornNow ? StrandPalette.accent : StrandPalette.statusWarning,
+                  frac: !liveLink ? nil : (wornNow ? 1 : 0.25))
         ]
     }
 }
