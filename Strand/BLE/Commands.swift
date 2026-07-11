@@ -236,7 +236,6 @@ public enum RebootProbeVariant: String, CaseIterable, Sendable {
 
     var command: WhoopCommand { self == .powerCycle32Empty ? .powerCycleStrap : .rebootStrap }
     var payload: [UInt8] { self == .reboot29Payload1 ? [0x01] : [] }
-    var opcode: Int { self == .powerCycle32Empty ? 32 : 29 }
 
     /// Short menu label, e.g. "A · REBOOT_STRAP(29) empty".
     public var menuLabel: String {

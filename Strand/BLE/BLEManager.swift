@@ -2213,7 +2213,7 @@ public final class BLEManager: NSObject, ObservableObject {
     public func rebootStrap() {
         // Production Restart: opcode 29 REBOOT_STRAP, empty body per the official app's builder
         // (rh0.C45476d0). Confirmed on WHOOP 5.0 (#227); ignored on 4.0 (#235 — see rebootProbe).
-        sendRebootFrame(command: .rebootStrap, opcode: 29, payload: [], probe: nil)
+        sendRebootFrame(command: .rebootStrap, payload: [], probe: nil)
     }
 
     /// Send one candidate reboot frame from the WHOOP 4.0 reboot probe (Test Centre → Connection).
@@ -2226,13 +2226,13 @@ public final class BLEManager: NSObject, ObservableObject {
             log("reboot: probe is WHOOP 4.0 only — ignored (family=\(selectedModel.deviceFamily))")
             return
         }
-        sendRebootFrame(command: variant.command, opcode: variant.opcode, payload: variant.payload, probe: variant)
+        sendRebootFrame(command: variant.command, payload: variant.payload, probe: variant)
     }
 
     /// Shared reboot send + debug trail + watchdog, used by both the production `rebootStrap()` and the
     /// 4.0 `rebootProbe(_:)`. `probe == nil` is the normal restart; a non-nil variant is a probe attempt
     /// (its `logTag` is stamped first so the strap log correlates the attempt with what the strap did).
-    private func sendRebootFrame(command: WhoopCommand, opcode: Int, payload: [UInt8], probe: RebootProbeVariant?) {
+    private func sendRebootFrame(command: WhoopCommand, payload: [UInt8], probe: RebootProbeVariant?) {
         let family = selectedModel.deviceFamily
         guard state.connected, state.bonded, let p = peripheral, p.state == .connected else {
             log("reboot: connect + bond first — ignored (connected=\(state.connected) bonded=\(state.bonded))")
@@ -2241,6 +2241,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // Supersede any still-pending reboot (cancels its timers + resets the flag) so a repeat tap can't
         // leave a stale watchdog/settle timer that fires during this new reboot's window.
         clearRebootState()
+        // The logged opcode is always the command's on-wire value — never a separate field that could
+        // disagree with the bytes actually sent.
+        let opcode = Int(command.rawValue)
         let framing = family == .whoop5 ? "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" : "harvard-crc8 (UNVERIFIED on 4.0)"
         let fw = state.strapFirmware ?? "unknown"
         let payloadDesc = payload.isEmpty ? "empty" : payload.map { String(format: "%02x", $0) }.joined()

@@ -158,7 +158,6 @@ enum class CommandNumber(val rawValue: Int) {
  */
 enum class RebootProbeVariant(
     val command: CommandNumber,
-    val opcode: Int,
     val payload: ByteArray,
     /** Short menu label, e.g. "A · REBOOT_STRAP(29) empty". */
     val menuLabel: String,
@@ -166,12 +165,12 @@ enum class RebootProbeVariant(
     val logTag: String,
 ) {
     // A — opcode 29 REBOOT_STRAP, empty body: NOOP's current production frame (ignored on 4.0).
-    REBOOT_29_EMPTY(CommandNumber.REBOOT_STRAP, 29, byteArrayOf(),
+    REBOOT_29_EMPTY(CommandNumber.REBOOT_STRAP, byteArrayOf(),
         "A · REBOOT_STRAP(29) empty", "A/reboot29-empty"),
     // B — opcode 32 POWER_CYCLE_STRAP, empty body: a harder restart, never tried.
-    POWER_CYCLE_32_EMPTY(CommandNumber.POWER_CYCLE_STRAP, 32, byteArrayOf(),
+    POWER_CYCLE_32_EMPTY(CommandNumber.POWER_CYCLE_STRAP, byteArrayOf(),
         "B · POWER_CYCLE(32) empty", "B/powercycle32-empty"),
     // C — opcode 29 REBOOT_STRAP, payload [0x01]: same opcode with a non-empty sub-command byte.
-    REBOOT_29_PAYLOAD1(CommandNumber.REBOOT_STRAP, 29, byteArrayOf(0x01),
+    REBOOT_29_PAYLOAD1(CommandNumber.REBOOT_STRAP, byteArrayOf(0x01),
         "C · REBOOT_STRAP(29) payload=01", "C/reboot29-payload01"),
 }

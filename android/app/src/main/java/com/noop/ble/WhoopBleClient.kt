@@ -2398,7 +2398,7 @@ class WhoopBleClient(
     fun rebootStrap() {
         // Production Restart: opcode 29 REBOOT_STRAP, empty body per the official app's builder.
         // Confirmed on WHOOP 5.0 (#227); ignored on 4.0 (#235 — see rebootProbe).
-        sendRebootFrame(CommandNumber.REBOOT_STRAP, 29, byteArrayOf(), null)
+        sendRebootFrame(CommandNumber.REBOOT_STRAP, byteArrayOf(), null)
     }
 
     /** Send one candidate reboot frame from the WHOOP 4.0 reboot probe (Test Centre → Connection).
@@ -2411,14 +2411,14 @@ class WhoopBleClient(
             log("reboot: probe is WHOOP 4.0 only — ignored (family=$connectedFamily)")
             return
         }
-        sendRebootFrame(variant.command, variant.opcode, variant.payload, variant)
+        sendRebootFrame(variant.command, variant.payload, variant)
     }
 
     /** Shared reboot send + debug trail + watchdog, used by both the production [rebootStrap] and the
      *  4.0 [rebootProbe]. `probe == null` is the normal restart; a non-null variant is a probe attempt
      *  (its `logTag` is stamped first so the strap log correlates the attempt with what the strap did).
      *  Twin of macOS BLEManager.sendRebootFrame. */
-    private fun sendRebootFrame(command: CommandNumber, opcode: Int, payload: ByteArray, probe: RebootProbeVariant?) {
+    private fun sendRebootFrame(command: CommandNumber, payload: ByteArray, probe: RebootProbeVariant?) {
         val family = connectedFamily
         if (!_state.value.connected || !_state.value.bonded || gatt == null) {
             log("reboot: connect + bond first — ignored (connected=${_state.value.connected} bonded=${_state.value.bonded})")
@@ -2427,6 +2427,9 @@ class WhoopBleClient(
         // Supersede any still-pending reboot (cancels its timers + resets the flag) so a repeat tap can't
         // leave a stale watchdog/settle timer that fires during this new reboot's window.
         clearRebootState()
+        // The logged opcode is always the command's on-wire value — never a separate field that could
+        // disagree with the bytes actually sent.
+        val opcode = command.rawValue
         val framing = if (family == DeviceFamily.WHOOP5) "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" else "harvard-crc8 (UNVERIFIED on 4.0)"
         val fw = _state.value.strapFirmware ?: "unknown"
         val payloadDesc = if (payload.isEmpty()) "empty" else payload.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
