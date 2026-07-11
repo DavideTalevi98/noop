@@ -137,4 +137,15 @@ class MergeSleepLocalDayTest {
         val merged = WhoopRepository.mergeSleep(imported = listOf(imp), computed = listOf(night, nap))
         assertEquals("whole computed day (incl. stage-less nap) survives", listOf(night.startTs, nap.startTs), merged.map { it.startTs })
     }
+
+    /** The Sleep screen calls [WhoopRepository.mergeSleepRichness] directly (it sorts by effectiveStartTs,
+     *  not startTs), so pin that it applies the SAME richness rule and returns UNSORTED for the caller. */
+    @Test
+    fun mergeSleepRichness_appliesRichnessAndDoesNotSort() {
+        fun endDay(s: SleepSession) = (s.endTs / 86_400L).toString()
+        val comp = session(wake - 8 * 3600L, wake, someStages)
+        val imp = session(wake - 6 * 3600L, wake, null) // same day, stage-less
+        val out = WhoopRepository.mergeSleepRichness(listOf(imp), listOf(comp), ::endDay)
+        assertEquals("stage-less import yields to computed-with-stages", listOf(comp.startTs), out.map { it.startTs })
+    }
 }

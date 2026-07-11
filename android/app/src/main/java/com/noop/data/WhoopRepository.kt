@@ -1705,14 +1705,26 @@ class WhoopRepository(private val dao: WhoopDao) {
                 val offsetSec = (java.util.TimeZone.getDefault().getOffset(s.endTs * 1000) / 1000).toLong()
                 return com.noop.analytics.AnalyticsEngine.dayString(s.endTs, offsetSec)
             }
-            // #715 — preserve EVERY session (a day with a main night + a nap must keep both); imported
-            // still wins per end-day. Richness exception (ryanbr/noop#241): a sparse import (no stage
-            // data on ANY of its sessions that day) must NOT clobber a computed day that HAS stage data —
-            // otherwise a stage-less WHOOP/Apple/HC re-import blanks the stage breakdown for a night the
-            // strap fully staged. Days where the import carries stages, or where neither side does, keep
-            // the imported-wins rule. Mirrors WhoopStore.SleepMerge (SleepMergeTests).
-            val importedByDay = imported.groupBy { endDay(it) }
-            val computedByDay = computed.groupBy { endDay(it) }
+            return mergeSleepRichness(imported, computed, ::endDay).sortedBy { it.startTs }
+        }
+
+        /** Imported-wins-per-day sleep merge WITH the #241 richness exception, returned UNSORTED so callers
+         *  can apply their own sort/keyer. [mergeSleep] is this keyed by local wake-day + sorted by startTs;
+         *  the Sleep screen (SleepScreen) keys the same way but sorts by effectiveStartTs (#395), so it calls
+         *  this directly to get the SAME richness rule the browse/CSV path uses.
+         *
+         *  #715 — preserve EVERY session (a day with a main night + a nap must keep both). Richness exception
+         *  (ryanbr/noop#241): a sparse import (no stage data on ANY of its sessions that day) must NOT clobber
+         *  a computed day that HAS stage data — otherwise a stage-less WHOOP/Apple/HC re-import blanks the
+         *  stage breakdown for a night the strap fully staged. Days where the import carries stages, or where
+         *  neither side does, keep the imported-wins rule. Mirrors WhoopStore.SleepMerge (SleepMergeTests). */
+        internal fun mergeSleepRichness(
+            imported: List<SleepSession>,
+            computed: List<SleepSession>,
+            endDay: (SleepSession) -> String,
+        ): List<SleepSession> {
+            val importedByDay = imported.groupBy(endDay)
+            val computedByDay = computed.groupBy(endDay)
             val out = ArrayList<SleepSession>(imported.size + computed.size)
             for ((day, imp) in importedByDay) {
                 val comp = computedByDay[day]
@@ -1723,7 +1735,7 @@ class WhoopRepository(private val dao: WhoopDao) {
                 }
             }
             for ((day, comp) in computedByDay) if (day !in importedByDay) out.addAll(comp)
-            return out.sortedBy { it.startTs }
+            return out
         }
 
         /** True when the session carries a non-empty stage payload; null, "", and "[]" carry none.
