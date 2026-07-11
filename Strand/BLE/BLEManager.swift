@@ -3496,7 +3496,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         let body = Array(frame[7...]); var newest: Int? = nil; var i = 0
         while i + 4 <= body.count {
             let w = Int(body[i]) | Int(body[i+1]) << 8 | Int(body[i+2]) << 16 | Int(body[i+3]) << 24
-            if w >= 1_700_000_000 && w <= 1_900_000_000 { newest = max(newest ?? 0, w) }
+            if w >= 1_700_000_000 && w <= 2_500_000_000 { newest = max(newest ?? 0, w) }
             i += 4
         }
         return newest
@@ -3512,7 +3512,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         let body = Array(frame[7...]); var oldest: Int? = nil; var i = 0
         while i + 4 <= body.count {
             let w = Int(body[i]) | Int(body[i+1]) << 8 | Int(body[i+2]) << 16 | Int(body[i+3]) << 24
-            if w >= 1_700_000_000 && w <= 1_900_000_000 { oldest = min(oldest ?? .max, w) }
+            if w >= 1_700_000_000 && w <= 2_500_000_000 { oldest = min(oldest ?? .max, w) }
             i += 4
         }
         return oldest

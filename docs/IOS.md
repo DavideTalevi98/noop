@@ -80,7 +80,37 @@ below.
 > `$(APP_GROUP_ID)`, and the runtime `WidgetSnapshot.suiteName` reads it back from the Info.plist, so
 > there's a single value to change and nothing hard-coded in Swift. Then re-run `xcodegen` so the
 > change survives regeneration instead of being overwritten. The App Group is only needed for the
-> **widgets / Live Activity** — if you don't need those, you can skip wiring it and the core app still builds.
+> **widgets / Live Activity / Apple Watch** — wire the same `APP_GROUP_ID` on `NOOPiOS`, `NOOPiOSWidgets`,
+> `NOOPWatch`, and `NOOPWatchComplications` so the phone, widget, and wrist read the same snapshot.
+
+## Apple Watch (NOOPWatch)
+
+NOOP ships a **real watchOS companion** (`NOOPWatch` + `NOOPWatchComplications`), embedded inside the
+iPhone app bundle. The phone computes Charge / Effort / Rest; the watch **displays** that snapshot and
+runs wrist-native Breathe / Workout / Intervals. It does **not** pair to the WHOOP strap over BLE.
+
+### Install on your Ultra / Series watch
+
+**Sideloaded `.ipa` installs (AltStore/SideStore) often do not push the watch companion.** Build from
+source with your own Team instead:
+
+1. Set `DEVELOPMENT_TEAM`, bundle ids, and `APP_GROUP_ID` once in **`project.yml`** (all four iOS/watch
+   targets), then `xcodegen generate`.
+2. Connect the **iPhone** (USB). Keep the **Apple Watch** paired, unlocked, and on the charger if possible.
+3. **Recommended:** open `Strand.xcodeproj`, scheme **`NOOPiOS`**, select your iPhone, **Run** (⌘R).
+   Xcode installs the iPhone app and pushes the embedded watch app to the paired watch.
+4. **CLI helper:** `./Tools/install-noop-ios-watch.sh` (builds + installs over USB). Direct Mac→Watch
+   install only works if **Developer Mode** is on on the watch
+   (**Watch → Settings → Privacy & Security → Developer Mode → On**, then reboot). Otherwise use step 5
+   or Run from Xcode.
+5. On the iPhone, open **Watch → NOOP** (or “NOOP Staging”) and tap **Install** if the watch app has
+   not appeared yet.
+6. Open **NOOP on the iPhone** once so scores sync to the wrist. Add the **Charge complication** from
+   the watch-face editor (long-press the face → Edit → Complications → NOOP).
+
+Watch sync is **interactive** after foreground / strap backfill / opening the watch app (the phone
+rebuilds and pushes immediately). Background dashboard refreshes stay throttled to protect Apple's
+complication transfer budget.
 
 > ℹ️ **Cross-platform engineering lives in [`CROSS_PLATFORM.md`](CROSS_PLATFORM.md)** — the shared-code
 > boundary across the macOS / iOS / Android clients, the `Platform.swift` shim convention, the

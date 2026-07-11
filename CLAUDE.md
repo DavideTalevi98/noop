@@ -81,22 +81,25 @@ cd android && ./gradlew compileFullDebugKotlin             # compile the whole a
 # macOS app (needs Xcode on macOS):
 xcodegen generate && xcodebuild -project Strand.xcodeproj -scheme Strand \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+# All of the above in one shot (macOS + Xcode required for the app leg):
+./scripts/check-before-pr.sh
 ```
 
 ### What each CI job covers — and the gaps
 | Workflow | Covers | Runner | Default state |
 |---|---|---|---|
-| `swift-packages.yml` | `swift test` for **`Packages/**` only** (WhoopProtocol, WhoopStore, StrandAnalytics, StrandImport, StrandDesign, NoopLocalAccess) | macos-15 | **active** |
-| `app-build.yml` | **Compile-only** of the **app targets** (`Strand` macOS + `NOOPiOS` iOS). iOS leg needs **macos-26** (iOS 26 SDK / `glassEffect`). | macos-15 / macos-26 | **disabled** (on-demand) |
-| `android.yml` | `assembleFullDebug` + `testFullDebugUnitTest` | ubuntu | **disabled** (compile Android locally) |
+| `swift-packages.yml` | `swift test` for **`Packages/**` only** (WhoopProtocol, OuraProtocol, WhoopStore, StrandAnalytics, StrandImport, StrandDesign, NoopLocalAccess) | macos-15 | **active** (path-filtered PR/push to `main`) |
+| `app-build.yml` | **Compile-only** of the **app targets** (`Strand` macOS + `NOOPiOS` iOS). iOS leg needs **macos-26** (iOS 26 SDK / `glassEffect`). | macos-15 / macos-26 | **path-filtered** PR/push to `main` + `workflow_dispatch` — requires GitHub Actions enabled on the repo |
+| `android.yml` | `assembleFullDebug` + `testFullDebugUnitTest` | ubuntu | **path-filtered** PR/push to `main` + `workflow_dispatch` — requires GitHub Actions enabled on the repo |
 | `fork-testing-build.yml` / `fork-release.yml` | Staging / release builds (apk + mac + ios) | — | on dispatch |
 
 **The trap:** `swift-packages` does **NOT** compile the app targets. So if you touch **app-target
 Swift** — anything under `Strand/`, `StrandiOS/`, `StrandiOSShared/`, `StrandiOSWidgets/` (Views,
 `AppModel`, `BLEManager`, `Repository`, `RootTabView`, widget publish, …) — **no default CI validates
-it**, because `app-build.yml` is disabled. A compile error there (e.g. `'self' used before all stored
-properties are initialized`) will pass every green check and still be broken. If you change app-target
-Swift, you MUST build the app yourself: `xcodebuild … build` locally, or run `app-build.yml` on demand.
+it**, if the PR does not touch those paths or if GitHub Actions is off on the fork. A compile error
+there (e.g. `'self' used before all stored properties are initialized`) can pass every green check and
+still be broken. If you change app-target Swift, you MUST build the app yourself: `xcodebuild … build`
+locally, run `scripts/check-before-pr.sh`, or trigger `app-build.yml` manually.
 
 ### Local walls (things that will *not* build where you expect)
 - **On Linux:** only `WhoopProtocol` / `OuraProtocol` (pure) build & test. Every GRDB-linked package —

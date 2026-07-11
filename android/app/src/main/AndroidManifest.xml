@@ -265,7 +265,8 @@
              silently drop the user's wake. -->
         <receiver
             android:name="com.noop.alarm.SmartAlarmBootReceiver"
-            android:exported="false">
+            android:exported="false"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />

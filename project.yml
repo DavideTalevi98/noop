@@ -27,6 +27,8 @@ settings:
     # extension. Referenced as $(APP_GROUP_ID) by both targets' entitlements and Info.plist, and read
     # at runtime via the AppGroupIdentifier Info.plist key (WidgetSnapshot.suiteName) so the value is
     # never hard-coded in Swift. Change it in this one place when building under your own Apple ID.
+    # Local builds: copy Tools/signing.local.env.example → signing.local.env (gitignored) and run
+    # Tools/apply-local-signing.sh before xcodegen — do NOT commit your Team / bundle ids here.
     APP_GROUP_ID: group.com.noopapp.noop.staging
     # Build for both Apple Silicon and Intel so the release runs on every Mac.
     ARCHS: "$(ARCHS_STANDARD)"

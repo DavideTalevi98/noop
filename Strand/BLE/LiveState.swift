@@ -262,7 +262,10 @@ public final class LiveState: ObservableObject {
     /// so they're trivially unit-testable away from the @MainActor instance.
     static func formatSpeedKmh(_ kmh: Double?) -> String? {
         guard let kmh, kmh.isFinite, kmh >= 0 else { return nil }
-        return String(format: "%.1f", kmh)
+        var decimal = Decimal(kmh)
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &decimal, 1, .plain)
+        return String(format: "%.1f", NSDecimalNumber(decimal: rounded).doubleValue)
     }
     static func formatCadence(_ perMin: Double?) -> String? {
         guard let perMin, perMin.isFinite, perMin >= 0 else { return nil }

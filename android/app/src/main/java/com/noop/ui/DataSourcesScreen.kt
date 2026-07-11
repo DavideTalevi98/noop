@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
+import com.noop.data.BackupRestart
 import com.noop.data.DataBackup
 import com.noop.data.ImportSummary
 import com.noop.ingest.AppleHealthImporter
@@ -156,7 +157,6 @@ fun DataSourcesScreen(vm: AppViewModel) {
 
     // Whole-store backup: export to a user-created document; import from a picked one.
     var busy by remember { mutableStateOf(false) }
-    var restartNeeded by remember { mutableStateOf(false) }
     // ah-delete (#616): drives the "Remove Apple Health imported data" confirm dialog.
     var confirmDeleteApple by remember { mutableStateOf(false) }
 
@@ -184,14 +184,11 @@ fun DataSourcesScreen(vm: AppViewModel) {
             val result = withContext(Dispatchers.IO) { DataBackup.importFrom(context, uri) }
             busy = false
             when (result) {
-                is DataBackup.ImportResult.NeedsRestart -> {
-                    restartNeeded = true
-                    Toast.makeText(
+                is DataBackup.ImportResult.NeedsRestart ->
+                    BackupRestart.afterRestoreToastAndExit(
                         context,
-                        "Imported. Fully close and reopen NOOP to load it.",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
+                        "Imported — restarting NOOP…",
+                    )
                 is DataBackup.ImportResult.Failed ->
                     Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
             }
@@ -848,13 +845,6 @@ fun DataSourcesScreen(vm: AppViewModel) {
             }
             if (busy) {
                 Text("Working…", style = NoopType.footnote, color = Palette.textTertiary)
-            }
-            if (restartNeeded) {
-                Text(
-                    "Import staged. Fully close and reopen NOOP to load the new data.",
-                    style = NoopType.subhead,
-                    color = Palette.statusWarning,
-                )
             }
         }
         }

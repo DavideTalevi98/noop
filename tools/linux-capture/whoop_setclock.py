@@ -49,7 +49,7 @@ FAMILIES = {
     },
 }
 
-UNIX_LO, UNIX_HI = 1_700_000_000, 1_900_000_000
+UNIX_LO, UNIX_HI = 1_700_000_000, 2_500_000_000
 
 event_rtc = wf.frame_rtc   # strap RTC read-back lives in whoop_frame.py (pure, unit-tested)
 

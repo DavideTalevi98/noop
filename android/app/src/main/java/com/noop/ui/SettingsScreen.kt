@@ -98,6 +98,7 @@ import com.noop.analytics.Baselines
 import com.noop.analytics.Zones
 import com.noop.ble.PuffinExperiment
 import com.noop.ble.WhoopModel
+import com.noop.data.BackupRestart
 import com.noop.data.DataBackup
 import com.noop.ingest.RawSensorExport
 import com.noop.ingest.WhoopCsvExporter
@@ -598,11 +599,11 @@ fun SettingsScreen(
             }
             backupBusy = false
             when (result) {
-                is DataBackup.ImportResult.NeedsRestart -> Toast.makeText(
-                    context,
-                    "Backup imported. Fully close and reopen NOOP for it to take effect.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                is DataBackup.ImportResult.NeedsRestart ->
+                    BackupRestart.afterRestoreToastAndExit(
+                        context,
+                        "Backup imported — restarting NOOP…",
+                    )
                 is DataBackup.ImportResult.Failed -> Toast.makeText(
                     context, result.message, Toast.LENGTH_LONG,
                 ).show()

@@ -555,7 +555,10 @@ class StandardHrSource(
         /** Speed in km/h as one decimal, or null when absent / negative / non-finite. */
         fun formatSpeedKmh(kmh: Double?): String? {
             if (kmh == null || !kmh.isFinite() || kmh < 0.0) return null
-            return String.format("%.1f", kmh)
+            // HALF_UP + Locale.US: faithful twin of Swift `LiveState.formatSpeedKmh` (8.55 → 8.6).
+            return java.math.BigDecimal.valueOf(kmh)
+                .setScale(1, java.math.RoundingMode.HALF_UP)
+                .toPlainString()
         }
 
         /** Cadence (per-minute) rounded to a whole number, or null when absent / negative / non-finite. */

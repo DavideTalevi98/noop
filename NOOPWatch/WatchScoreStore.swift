@@ -15,7 +15,8 @@ import StrandDesign
 // The published `snapshot` is what the glance binds to. It starts from whatever was last persisted to the
 // App Group (so a relaunch shows the last-known scores immediately, with an honest "as of" age) and is
 // nil only on a truly fresh install, which the glance renders as the "open NOOP on your iPhone" state.
-final class WatchScoreStore: NSObject, ObservableObject, WCSessionDelegate {
+@MainActor
+final class WatchScoreStore: NSObject, ObservableObject, @preconcurrency WCSessionDelegate {
 
     /// The latest snapshot the watch knows about. nil = nothing has ever synced (fresh install).
     @Published private(set) var snapshot: WatchScoreSnapshot?
@@ -48,6 +49,25 @@ final class WatchScoreStore: NSObject, ObservableObject, WCSessionDelegate {
         session.activate()
     }
 
+    /// Ask the phone to rebuild and push the latest scores now (interactive urgency on the phone side).
+    func requestLatestFromPhone() {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        let payload = [WatchScoreSnapshot.wcRequestLatestKey: true] as [String: Any]
+        if session.isReachable {
+            session.sendMessage(payload, replyHandler: { [weak self] reply in
+                guard let self,
+                      let data = reply[WatchScoreSnapshot.wcContextKey] as? Data,
+                      let snap = try? JSONDecoder().decode(WatchScoreSnapshot.self, from: data) else { return }
+                Task { @MainActor in self.apply(snap) }
+            }, errorHandler: { _ in })
+        } else {
+            // Application context delivers when the phone next wakes; this nudges a rebuild if reachable later.
+            session.transferUserInfo(payload)
+        }
+    }
+
     // MARK: Persistence (shared with the complication)
 
     /// Read the last snapshot the phone delivered, if any. The complication uses the same key.
@@ -67,46 +87,43 @@ final class WatchScoreStore: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     /// Apply a freshly received snapshot: store it, publish to the glance, refresh the complication.
-    /// Hops to the main actor because it touches @Published state and WidgetCenter.
     private func apply(_ snap: WatchScoreSnapshot) {
         persist(snap)
-        DispatchQueue.main.async {
-            self.snapshot = snap
-            // The phone just pushed new scores, so pull the complication timelines forward now rather
-            // than waiting for WidgetKit's own cadence.
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+        snapshot = snap
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// Decode a WatchScoreSnapshot out of a WatchConnectivity payload. The phone encodes the Codable
     /// snapshot to Data under "snapshot"; we tolerate a missing/garbled payload by simply ignoring it.
-    private func decode(from payload: [String: Any]) -> WatchScoreSnapshot? {
-        guard let data = payload["snapshot"] as? Data else { return nil }
+    private nonisolated func decode(from payload: [String: Any]) -> WatchScoreSnapshot? {
+        guard let data = payload[WatchScoreSnapshot.wcContextKey] as? Data else { return nil }
         return try? JSONDecoder().decode(WatchScoreSnapshot.self, from: data)
     }
 
     // MARK: WCSessionDelegate
 
-    func session(_ session: WCSession,
-                 activationDidCompleteWith activationState: WCSessionActivationState,
-                 error: Error?) {
-        // On activation the system hands us the most recent application context the phone set, even if it
-        // was set while we were not running. Pick it up so a relaunch immediately reflects the latest scores.
+    nonisolated func session(_ session: WCSession,
+                             activationDidCompleteWith activationState: WCSessionActivationState,
+                             error: Error?) {
         if let snap = decode(from: session.receivedApplicationContext) {
-            apply(snap)
+            Task { @MainActor in apply(snap) }
         }
+        Task { @MainActor in requestLatestFromPhone() }
     }
 
     /// The phone calls `updateApplicationContext` whenever its dashboard refreshes. Latest-state only, so
     /// we always have the freshest scores without a backlog of stale messages.
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         if let snap = decode(from: applicationContext) {
-            apply(snap)
+            Task { @MainActor in apply(snap) }
         }
     }
 
     // Required by the protocol on watchOS even though they are phone-side concerns. No-ops here.
     #if os(watchOS)
-    func sessionReachabilityDidChange(_ session: WCSession) {}
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        guard session.isReachable else { return }
+        Task { @MainActor in requestLatestFromPhone() }
+    }
     #endif
 }

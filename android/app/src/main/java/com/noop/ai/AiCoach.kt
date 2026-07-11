@@ -613,7 +613,7 @@ class AiCoach(private val repo: WhoopRepository) {
 
     private fun fmt1(v: Double): String =
         if (v == v.roundToInt().toDouble()) v.roundToInt().toString()
-        else String.format("%.1f", v)
+        else String.format(java.util.Locale.US, "%.1f", v)
 
     private inline fun avgInt(days: List<DailyMetric>, sel: (DailyMetric) -> Double?): String {
         val vals = days.mapNotNull(sel)

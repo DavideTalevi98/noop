@@ -806,7 +806,7 @@ class WhoopBleClient(
                     ((frame[i + 1].toLong() and 0xFFL) shl 8) or
                     ((frame[i + 2].toLong() and 0xFFL) shl 16) or
                     ((frame[i + 3].toLong() and 0xFFL) shl 24)
-                if (w in 1_700_000_000L..1_900_000_000L) newest = maxOf(newest ?: 0L, w)
+                if (w in 1_700_000_000L..2_500_000_000L) newest = maxOf(newest ?: 0L, w)
                 i += 4
             }
             return newest
@@ -825,7 +825,7 @@ class WhoopBleClient(
                     ((frame[i + 1].toLong() and 0xFFL) shl 8) or
                     ((frame[i + 2].toLong() and 0xFFL) shl 16) or
                     ((frame[i + 3].toLong() and 0xFFL) shl 24)
-                if (w in 1_700_000_000L..1_900_000_000L) oldest = minOf(oldest ?: Long.MAX_VALUE, w)
+                if (w in 1_700_000_000L..2_500_000_000L) oldest = minOf(oldest ?: Long.MAX_VALUE, w)
                 i += 4
             }
             return oldest

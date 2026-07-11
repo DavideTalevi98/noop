@@ -1786,13 +1786,27 @@ struct SettingsView: View {
             backupAlertMessage = String(localized: "Saved to \(url.lastPathComponent). Copy this file to your other \(Platform.deviceNoun) and use Import there to restore everything.")
             showBackupAlert = true
         case .imported:
+            // #57: DB file is swapped; long-lived store handles still point at the old connection.
+            // Relaunch automatically (parity with Android BackupRestart) rather than trust the user to quit.
             backupAlertTitle = String(localized: "Backup imported")
-            backupAlertMessage = String(localized: "Your data has been restored. Quit and reopen NOOP for it to take effect.")
+            backupAlertMessage = String(localized: "Your data has been restored. NOOP will quit so the restore can take effect — reopen the app.")
             showBackupAlert = true
+            scheduleRelaunchAfterBackupRestore()
         case .failure(let message):
             backupAlertTitle = String(localized: "Backup problem")
             backupAlertMessage = message
             showBackupAlert = true
+        }
+    }
+
+    /// #57: the restore swapped the DB on disk; relaunch so the next open uses the restored file.
+    private func scheduleRelaunchAfterBackupRestore() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            #if os(macOS)
+            NSApplication.shared.terminate(nil)
+            #else
+            exit(0)
+            #endif
         }
     }
 

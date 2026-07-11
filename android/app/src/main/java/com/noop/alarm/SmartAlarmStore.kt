@@ -62,7 +62,25 @@ class SmartAlarmStore(private val prefs: SharedPreferences) {
         const val WINDOW_MIN = 5
         const val WINDOW_MAX = 60
 
-        fun from(context: Context): SmartAlarmStore =
-            SmartAlarmStore(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+        fun from(context: Context): SmartAlarmStore {
+            val app = context.applicationContext
+            val dps = app.createDeviceProtectedStorageContext()
+            val dpsPrefs = dps.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            // One-time CE → DPS migration so a post-reboot re-arm works before first unlock (#207).
+            // CE prefs are unreachable in Direct Boot — skip migration until the user unlocks.
+            runCatching {
+                val cePrefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                if (dpsPrefs.all.isEmpty() && cePrefs.all.isNotEmpty()) {
+                    dpsPrefs.edit()
+                        .putBoolean(KEY_ENABLED, cePrefs.getBoolean(KEY_ENABLED, false))
+                        .putInt(KEY_TARGET, cePrefs.getInt(KEY_TARGET, DEFAULT_TARGET))
+                        .putInt(KEY_WINDOW, cePrefs.getInt(KEY_WINDOW, DEFAULT_WINDOW))
+                        .putLong(KEY_DEADLINE_MS, cePrefs.getLong(KEY_DEADLINE_MS, 0L))
+                        .putLong(KEY_WINDOW_START_MS, cePrefs.getLong(KEY_WINDOW_START_MS, 0L))
+                        .apply()
+                }
+            }
+            return SmartAlarmStore(dpsPrefs)
+        }
     }
 }

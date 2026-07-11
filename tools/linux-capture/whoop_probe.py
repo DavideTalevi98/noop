@@ -34,7 +34,7 @@ CMD_GET_BATTERY_LEVEL = 26
 
 # Plausible window for a *real* unix timestamp (≈2023-11 … 2030), used to tell a correctly-set strap
 # clock from a stale/reset one.
-UNIX_LO, UNIX_HI = 1_700_000_000, 1_900_000_000
+UNIX_LO, UNIX_HI = 1_700_000_000, 2_500_000_000
 
 
 def u32le(b: bytes, off: int) -> int:
