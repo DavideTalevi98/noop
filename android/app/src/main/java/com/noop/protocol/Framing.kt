@@ -438,6 +438,10 @@ object Framing {
         frame.u32(8)?.let { parsed["event_timestamp"] = it.toInt() }
 
         if (EventNumber.fromRaw(evVal) == EventNumber.BATTERY_LEVEL && length != null) {
+            // Diagnostic region marker mirroring the Swift twin's `fb.region(7, length, "BATTERY_LEVEL
+            // payload", …)` — a byte-count note, not a decoded value, but part of the persisted event
+            // payload shape (the parity contract in CLAUDE.md), so both platforms must carry it.
+            if (7 < length && length <= frame.size) parsed["BATTERY_LEVEL payload"] = "[${length - 7} bytes]"
             // Fixed layout, empirically verified against captured frames:
             //   soc% = u16@17/10 · mV = u16@21 · charging = u8@26 bit0
             frame.u16(17)?.let { raw -> if (raw <= 1100) parsed["battery_pct"] = raw.toDouble() / 10.0 }

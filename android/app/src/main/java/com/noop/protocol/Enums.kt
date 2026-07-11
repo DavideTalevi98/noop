@@ -5,9 +5,14 @@ package com.noop.protocol
  * every enum offers a `fromRaw(Int)` companion lookup that returns null for unknown codes.
  *
  * Values mirror the canonical schema (whoop_protocol.json) and the project SHARED CONTRACT.
- * These are deliberately a curated subset of the full device enum tables — only the codes the
- * offline companion app reads or sends. Unknown codes are surfaced by name elsewhere (see
- * [Framing.enumLabel]); they are not added here so the enums stay small and intentional.
+ * [CommandNumber] is deliberately a curated subset of the full device command table — only the
+ * SAFE codes this offline companion app ever sends (see its own doc comment); this is a hardware
+ * safety boundary, not a decode gap. [EventNumber], by contrast, mirrors the FULL schema table —
+ * it only decodes inbound events, so there is no safety reason to omit a code, and every entry
+ * here MUST match `whoop_protocol.json`'s `EventNumber` map so a decoded `kind` string is
+ * byte-identical to the Swift twin's `Schema.enumName("EventNumber", _:)` (the cross-platform
+ * parity contract in CLAUDE.md — an unmapped code silently falls back to a `0xNN(N)` label via
+ * [Framing.hexLabel] instead of the Swift-resolved name, which is what StreamsParityTest catches).
  */
 
 /** Frame packet type (envelope byte at offset 4 for Whoop 4.0). */
@@ -43,21 +48,66 @@ enum class MetadataType(val rawValue: Int) {
     }
 }
 
-/** EVENT frame event code (offset 6 in an EVENT frame). */
+/** EVENT frame event code (offset 6 in an EVENT frame). Full table — see the class doc above. */
 enum class EventNumber(val rawValue: Int) {
+    UNDEFINED(0),
+    ERROR(1),
+    CONSOLE_OUTPUT(2),
     BATTERY_LEVEL(3),
+    SYSTEM_CONTROL(4),
+    EXTERNAL_5V_ON(5),
+    EXTERNAL_5V_OFF(6),
     CHARGING_ON(7),
     CHARGING_OFF(8),
     WRIST_ON(9),
     WRIST_OFF(10),
+    BLE_CONNECTION_UP(11),
+    BLE_CONNECTION_DOWN(12),
+    RTC_LOST(13),
     DOUBLE_TAP(14),
+    BOOT(15),
+    SET_RTC(16),
     TEMPERATURE_LEVEL(17),
+    PAIRING_MODE(18),
+    SERIAL_HEAD_CONNECTED(19),
+    SERIAL_HEAD_REMOVED(20),
+    BATTERY_PACK_CONNECTED(21),
+    BATTERY_PACK_REMOVED(22),
     BLE_BONDED(23),
+    BLE_HR_PROFILE_ENABLED(24),
+    BLE_HR_PROFILE_DISABLED(25),
+    TRIM_ALL_DATA(26),
+    TRIM_ALL_DATA_ENDED(27),
+    FLASH_INIT_COMPLETE(28),
+    STRAP_CONDITION_REPORT(29),
+    BOOT_REPORT(30),
+    EXIT_VIRGIN_MODE(31),
+    CAPTOUCH_AUTOTHRESHOLD_ACTION(32),
     BLE_REALTIME_HR_ON(33),
     BLE_REALTIME_HR_OFF(34),
+    ACCELEROMETER_RESET(35),
+    AFE_RESET(36),
+    SHIP_MODE_ENABLED(37),
+    SHIP_MODE_DISABLED(38),
+    SHIP_MODE_BOOT(39),
+    CH1_SATURATION_DETECTED(40),
+    CH2_SATURATION_DETECTED(41),
+    ACCELEROMETER_SATURATION_DETECTED(42),
+    BLE_SYSTEM_RESET(43),
+    BLE_SYSTEM_ON(44),
+    BLE_SYSTEM_INITIALIZED(45),
+    RAW_DATA_COLLECTION_ON(46),
+    RAW_DATA_COLLECTION_OFF(47),
+    STRAP_DRIVEN_ALARM_SET(56),
     STRAP_DRIVEN_ALARM_EXECUTED(57),
     APP_DRIVEN_ALARM_EXECUTED(58),
-    HAPTICS_FIRED(60);
+    STRAP_DRIVEN_ALARM_DISABLED(59),
+    HAPTICS_FIRED(60),
+    EXTENDED_BATTERY_INFORMATION(63),
+    HIGH_FREQ_SYNC_PROMPT(96),
+    HIGH_FREQ_SYNC_ENABLED(97),
+    HIGH_FREQ_SYNC_DISABLED(98),
+    HAPTICS_TERMINATED(100);
 
     companion object {
         private val byRaw = entries.associateBy { it.rawValue }

@@ -482,13 +482,14 @@ class FramingTest {
 
     @Test
     fun whoop5_event_decodesAtPlus4AndPreservesPayload() {
-        // Real 5/MG capture: uncatalogued event 0x1D(29) with a 16-byte payload — kept as hex so
-        // protocol research can classify it later.
+        // Real 5/MG capture: event 0x1D(29) = STRAP_CONDITION_REPORT (catalogued in the shared
+        // EventNumber schema), 16-byte payload — kept as hex, since its structure lacks on-device
+        // 5.0 ground truth (see decodeWhoop5Event's doc comment, Interpreter.swift).
         val frame = fromHex("aa011c00010023d130c61d00e61ab7698a390c000e0000000000e8020b000100d2803585")
         val parsed = Framing.parseFrame(frame, DeviceFamily.WHOOP5)
         assertEquals("EVENT", parsed.typeName)
         assertEquals(true, parsed.crcOk)
-        assertEquals("0x1D(29)", parsed.parsed["event"])
+        assertEquals("STRAP_CONDITION_REPORT(29)", parsed.parsed["event"])
         assertEquals(1773607654, parsed.parsed["event_timestamp"])
         assertEquals("8a390c000e0000000000e8020b000100", parsed.parsed["event_payload_hex"])
     }
