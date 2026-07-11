@@ -193,7 +193,7 @@ public enum SleepStagerV2 {
         var hrSum = [Int: Double](), hrCnt = [Int: Int]()
         for s in hr { hrSum[s.ts, default: 0] += Double(s.bpm); hrCnt[s.ts, default: 0] += 1 }
         var secHR = [Int: Double](); secHR.reserveCapacity(hrSum.count)
-        for (k, v) in hrSum { secHR[k] = v / Double(hrCnt[k]!) }
+        for (k, v) in hrSum { guard let cnt = hrCnt[k] else { continue }; secHR[k] = v / Double(cnt) }
 
         var gxSum = [Int: Double](), gySum = [Int: Double](), gzSum = [Int: Double](), gCnt = [Int: Int]()
         for g in grav {
@@ -201,7 +201,10 @@ public enum SleepStagerV2 {
             gzSum[g.ts, default: 0] += g.z; gCnt[g.ts, default: 0] += 1
         }
         var secG = [Int: (Double, Double, Double)](); secG.reserveCapacity(gCnt.count)
-        for (k, c) in gCnt { let d = Double(c); secG[k] = (gxSum[k]! / d, gySum[k]! / d, gzSum[k]! / d) }
+        for (k, c) in gCnt {
+            guard let gx = gxSum[k], let gy = gySum[k], let gz = gzSum[k] else { continue }
+            let d = Double(c); secG[k] = (gx / d, gy / d, gz / d)
+        }
 
         // R-R values bucketed by second (for the RSA respiration window).
         var rrBy = [Int: [Double]]()
@@ -371,6 +374,20 @@ public enum SleepStagerV2 {
          "light": 0.0, "awake": 0.0]
     }
 
+    /// Lookup in a fixed-key map; keys are always present by construction (stageNames / baseLogPrior).
+    private static func req(_ map: [String: Double], _ key: String) -> Double {
+        guard let v = map[key] else { preconditionFailure("SleepStagerV2: missing key '\(key)'") }
+        return v
+    }
+
+    /// Lookup in the sticky transition matrix; every stageNames×stageNames cell is populated a priori.
+    private static func req(_ matrix: [String: [String: Double]], from: String, to: String) -> Double {
+        guard let row = matrix[from], let v = row[to] else {
+            preconditionFailure("SleepStagerV2: missing transition \(from)→\(to)")
+        }
+        return v
+    }
+
     /// Viterbi most-likely path over the per-epoch log-emissions with the sticky transition matrix and a
     /// uniform start. Ties resolve to the earlier stage in `stageNames`.
     static func viterbi(_ emSeq: [[String: Double]]) -> [String] {
@@ -382,20 +399,26 @@ public enum SleepStagerV2 {
             var newV = [String: Double](), bp = [String: String]()
             for s in stageNames {
                 var bestPrev = stageNames[0]
-                var bestVal = V[bestPrev]! + logT[bestPrev]![s]!
+                var bestVal = req(V, bestPrev) + req(logT, from: bestPrev, to: s)
                 for p in stageNames.dropFirst() {
-                    let val = V[p]! + logT[p]![s]!
+                    let val = req(V, p) + req(logT, from: p, to: s)
                     if val > bestVal { bestVal = val; bestPrev = p }
                 }
-                newV[s] = bestVal + emSeq[t][s]!
+                newV[s] = bestVal + req(emSeq[t], s)
                 bp[s] = bestPrev
             }
             V = newV; back.append(bp)
         }
-        var last = stageNames[0], lastV = V[last]!
-        for s in stageNames.dropFirst() where V[s]! > lastV { lastV = V[s]!; last = s }
+        var last = stageNames[0], lastV = req(V, last)
+        for s in stageNames.dropFirst() {
+            let v = req(V, s)
+            if v > lastV { lastV = v; last = s }
+        }
         var path = [last]
-        for bp in back.reversed() { last = bp[last]!; path.append(last) }
+        for bp in back.reversed() {
+            guard let prev = bp[last] else { preconditionFailure("SleepStagerV2: Viterbi backpointer gap") }
+            last = prev; path.append(last)
+        }
         return path.reversed()
     }
 
@@ -433,15 +456,19 @@ public enum SleepStagerV2 {
             let zhrv = zhr(f.hr), zhvv = zhv(f.hrVar), zmvv = zmv(f.moveFrac)
             let gate = deepGateSlope * max(0.0, fpct(f.hrFlat11) - deepGateThresh)
             var em: [String: Double] = [
-                "deep": -1.4 * zhvv - 0.2 * zhrv - 0.3 * zmvv - gate + baseLogPrior["deep"]!,
-                "rem": 0.6 * zhvv - 0.6 * zmvv + 0.4 * zhrv + baseLogPrior["rem"]!,
-                "light": baseLogPrior["light"]!,
-                "awake": 1.0 * zmvv + 0.8 * zhvv + 0.4 * zhrv + baseLogPrior["awake"]!,
+                "deep": -1.4 * zhvv - 0.2 * zhrv - 0.3 * zmvv - gate + req(baseLogPrior, "deep"),
+                "rem": 0.6 * zhvv - 0.6 * zmvv + 0.4 * zhrv + req(baseLogPrior, "rem"),
+                "light": req(baseLogPrior, "light"),
+                "awake": 1.0 * zmvv + 0.8 * zhvv + 0.4 * zhrv + req(baseLogPrior, "awake"),
             ]
             let pr = cyclePrior(f.clock)
-            for s in stageNames { em[s]! += pr[s]! }
-            if f.jerkMax > f.jerkScale * jerkFloorGateMult { em["awake"]! += motionGateBoost }
-            if let rg = f.respReg { let z = zrg(rg); em["deep"]! += respWeight * z; em["rem"]! -= respWeight * z }
+            for s in stageNames { em[s] = req(em, s) + req(pr, s) }
+            if f.jerkMax > f.jerkScale * jerkFloorGateMult { em["awake"] = req(em, "awake") + motionGateBoost }
+            if let rg = f.respReg {
+                let z = zrg(rg)
+                em["deep"] = req(em, "deep") + respWeight * z
+                em["rem"] = req(em, "rem") - respWeight * z
+            }
             seq.append(em)
         }
         return viterbi(seq)

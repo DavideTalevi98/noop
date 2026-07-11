@@ -222,7 +222,10 @@ object SleepStagerV2 {
         val hrSum = HashMap<Long, Double>(); val hrCnt = HashMap<Long, Int>()
         for (s in hr) { hrSum[s.ts] = (hrSum[s.ts] ?: 0.0) + s.bpm.toDouble(); hrCnt[s.ts] = (hrCnt[s.ts] ?: 0) + 1 }
         val secHR = HashMap<Long, Double>(hrSum.size)
-        for ((k, v) in hrSum) secHR[k] = v / hrCnt[k]!!
+        for ((k, v) in hrSum) {
+            val cnt = hrCnt[k] ?: continue
+            secHR[k] = v / cnt
+        }
 
         val gxSum = HashMap<Long, Double>(); val gySum = HashMap<Long, Double>()
         val gzSum = HashMap<Long, Double>(); val gCnt = HashMap<Long, Int>()
@@ -231,7 +234,13 @@ object SleepStagerV2 {
             gzSum[g.ts] = (gzSum[g.ts] ?: 0.0) + g.z; gCnt[g.ts] = (gCnt[g.ts] ?: 0) + 1
         }
         val secG = HashMap<Long, Triple<Double, Double, Double>>(gCnt.size)
-        for ((k, c) in gCnt) { val d = c.toDouble(); secG[k] = Triple(gxSum[k]!! / d, gySum[k]!! / d, gzSum[k]!! / d) }
+        for ((k, c) in gCnt) {
+            val d = c.toDouble()
+            val gx = gxSum[k] ?: continue
+            val gy = gySum[k] ?: continue
+            val gz = gzSum[k] ?: continue
+            secG[k] = Triple(gx / d, gy / d, gz / d)
+        }
 
         // R-R values bucketed by second (for the RSA respiration window).
         val rrBy = HashMap<Long, MutableList<Double>>()
@@ -404,6 +413,14 @@ object SleepStagerV2 {
         "rem" to 1.0 * c - (if (c < 0.12) 3.0 else 0.0),
         "light" to 0.0, "awake" to 0.0)
 
+    /** Lookup in a fixed-key map; keys are always present by construction (stageNames / baseLogPrior). */
+    private fun Map<String, Double>.req(key: String): Double =
+        requireNotNull(this[key]) { "SleepStagerV2: missing key '$key'" }
+
+    /** Lookup in the sticky transition matrix; every stageNames×stageNames cell is populated a priori. */
+    private fun Map<String, Map<String, Double>>.req(from: String, to: String): Double =
+        requireNotNull(this[from]?.get(to)) { "SleepStagerV2: missing transition $from->$to" }
+
     /** Viterbi most-likely path over the per-epoch log-emissions with the sticky transition matrix and a
      *  uniform start. Ties resolve to the earlier stage in [stageNames]. */
     private fun viterbi(emSeq: List<Map<String, Double>>): List<String> {
@@ -415,21 +432,27 @@ object SleepStagerV2 {
             val newV = HashMap<String, Double>(); val bp = HashMap<String, String>()
             for (s in stageNames) {
                 var bestPrev = stageNames[0]
-                var bestVal = v[bestPrev]!! + logT[bestPrev]!![s]!!
+                var bestVal = v.req(bestPrev) + logT.req(bestPrev, s)
                 for (p in stageNames.drop(1)) {
-                    val value = v[p]!! + logT[p]!![s]!!
+                    val value = v.req(p) + logT.req(p, s)
                     if (value > bestVal) { bestVal = value; bestPrev = p }
                 }
-                newV[s] = bestVal + emSeq[t][s]!!
+                newV[s] = bestVal + emSeq[t].req(s)
                 bp[s] = bestPrev
             }
             v = newV; back.add(bp)
         }
-        var last = stageNames[0]; var lastV = v[last]!!
-        for (s in stageNames.drop(1)) if (v[s]!! > lastV) { lastV = v[s]!!; last = s }
+        var last = stageNames[0]; var lastV = v.req(last)
+        for (s in stageNames.drop(1)) {
+            val value = v.req(s)
+            if (value > lastV) { lastV = value; last = s }
+        }
         val path = ArrayList<String>()
         path.add(last)
-        for (bp in back.reversed()) { last = bp[last]!!; path.add(last) }
+        for (bp in back.reversed()) {
+            last = requireNotNull(bp[last]) { "SleepStagerV2: Viterbi backpointer gap" }
+            path.add(last)
+        }
         return path.reversed()
     }
 
@@ -466,14 +489,18 @@ object SleepStagerV2 {
             val zhrv = zhr(f.hr); val zhvv = zhv(f.hrVar); val zmvv = zmv(f.moveFrac)
             val gate = deepGateSlope * maxOf(0.0, fpct(f.hrFlat11) - deepGateThresh)
             val em = HashMap<String, Double>()
-            em["deep"] = -1.4 * zhvv - 0.2 * zhrv - 0.3 * zmvv - gate + baseLogPrior["deep"]!!
-            em["rem"] = 0.6 * zhvv - 0.6 * zmvv + 0.4 * zhrv + baseLogPrior["rem"]!!
-            em["light"] = baseLogPrior["light"]!!
-            em["awake"] = 1.0 * zmvv + 0.8 * zhvv + 0.4 * zhrv + baseLogPrior["awake"]!!
+            em["deep"] = -1.4 * zhvv - 0.2 * zhrv - 0.3 * zmvv - gate + baseLogPrior.req("deep")
+            em["rem"] = 0.6 * zhvv - 0.6 * zmvv + 0.4 * zhrv + baseLogPrior.req("rem")
+            em["light"] = baseLogPrior.req("light")
+            em["awake"] = 1.0 * zmvv + 0.8 * zhvv + 0.4 * zhrv + baseLogPrior.req("awake")
             val pr = cyclePrior(f.clock)
-            for (s in stageNames) em[s] = em[s]!! + pr[s]!!
-            if (f.jerkMax > f.jerkScale * jerkFloorGateMult) em["awake"] = em["awake"]!! + motionGateBoost
-            f.respReg?.let { rg -> val z = zrg(rg); em["deep"] = em["deep"]!! + respWeight * z; em["rem"] = em["rem"]!! - respWeight * z }
+            for (s in stageNames) em[s] = em.req(s) + pr.req(s)
+            if (f.jerkMax > f.jerkScale * jerkFloorGateMult) em["awake"] = em.req("awake") + motionGateBoost
+            f.respReg?.let { rg ->
+                val z = zrg(rg)
+                em["deep"] = em.req("deep") + respWeight * z
+                em["rem"] = em.req("rem") - respWeight * z
+            }
             seq.add(em)
         }
         return viterbi(seq)
