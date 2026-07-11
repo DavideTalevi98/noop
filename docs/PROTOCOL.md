@@ -430,8 +430,10 @@ on both transports — unlike haptics, which has a maverick-specific `0x13`.
   payload. This wipes the rolling ~14-day flash history — anything not already offloaded is gone.
 - `REBOOT_STRAP` (29) — **empty body** (builder `rh0.C45476d0` passes a null payload). The strap drops
   the BLE link and re-advertises after boot; stored data is kept. Non-destructive, but interrupts any
-  in-flight offload. 5/MG framing is not hardware-confirmed (haptics already showed 5/MG can diverge on
-  both opcode and payload), so treat the puffin form as unverified until a real wire capture exists.
+  in-flight offload. **WHOOP 5.0 (puffin): hardware-confirmed** — the empty-body frame reboots a 5.0
+  (fw 50.40.1.0, #227). **WHOOP 4.0 (harvard): NOT confirmed** — a real 4.0 silently ignores this
+  empty-body frame (#235: no reboot, no disconnect, no COMMAND_RESPONSE), so the correct 4.0 form (a
+  payload byte? a different opcode?) still needs an HCI capture of the official app rebooting a 4.0.
 
 ---
 

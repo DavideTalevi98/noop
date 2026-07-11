@@ -272,8 +272,9 @@ fun DevicesScreen(
         ConfirmDialog(
             title = "Restart this strap?",
             message = "Restart ${displayName(device)}? It disconnects for about 30 seconds while it " +
-                "reboots, then reconnects on its own. Your recorded data is kept. On WHOOP 5.0/MG this is " +
-                "experimental — if it doesn't restart, your strap log helps us confirm the command.",
+                "reboots, then reconnects on its own. Your recorded data is kept. Confirmed on WHOOP 5.0; " +
+                "on WHOOP 4.0 the reboot command isn't confirmed yet — if nothing happens, your strap log " +
+                "helps us pin it down.",
             confirmLabel = "Restart",
             destructive = false,
             onConfirm = { viewModel.rebootStrap(); rebootTarget = null },

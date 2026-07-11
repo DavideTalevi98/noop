@@ -2215,7 +2215,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // Supersede any still-pending reboot (cancels its timers + resets the flag) so a repeat tap can't
         // leave a stale watchdog/settle timer that fires during this new reboot's window.
         clearRebootState()
-        let framing = family == .whoop5 ? "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" : "harvard-crc8"
+        let framing = family == .whoop5 ? "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" : "harvard-crc8 (UNVERIFIED on 4.0)"
         let fw = state.strapFirmware ?? "unknown"
         log("reboot: request family=\(family) fw=\(fw) connected=true bonded=true")
         log("reboot: sent opcode=29 framing=\(framing) payload=empty writeType=withResponse")
@@ -2234,7 +2234,7 @@ public final class BLEManager: NSObject, ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.rebootRequestedAt != nil, self.state.connected else { return }
             self.log("reboot: no disconnect within 12s — strap may have ignored the command"
-                     + (self.selectedModel.deviceFamily == .whoop5 ? " (5/MG reboot is verified on 5.0 fw 50.40.1.0; if your firmware differs, please share this log on #166)" : ""))
+                     + (self.selectedModel.deviceFamily == .whoop5 ? " (5/MG reboot is verified on 5.0 fw 50.40.1.0; if your firmware differs, please share this log on #166)" : " (the WHOOP 4.0 reboot frame is NOT confirmed yet — please share this log on #235)"))
             self.clearRebootState()
         }
         rebootTimeoutWork = work

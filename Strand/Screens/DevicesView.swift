@@ -169,7 +169,7 @@ private struct DevicesContent: View {
             Button("Cancel", role: .cancel) { rebootTarget = nil }
             Button("Restart") { model.rebootStrap(); rebootTarget = nil }
         } message: { device in
-            Text("Restart \(device.displayName)? It disconnects for about 30 seconds while it reboots, then reconnects on its own. Your recorded data is kept. On WHOOP 5.0/MG this is experimental — if it doesn't restart, your strap log helps us confirm the command.")
+            Text("Restart \(device.displayName)? It disconnects for about 30 seconds while it reboots, then reconnects on its own. Your recorded data is kept. Confirmed on WHOOP 5.0; on WHOOP 4.0 the reboot command isn't confirmed yet — if nothing happens, your strap log helps us pin it down.")
         }
         // Second, strongly-worded delete-data confirm (reached from the Remove card's secondary control)
         .alert("Delete all of this device's data?",

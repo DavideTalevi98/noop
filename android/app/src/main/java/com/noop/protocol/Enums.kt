@@ -87,9 +87,11 @@ enum class CommandNumber(val rawValue: Int) {
     // REBOOT_STRAP (29) — restart the strap. Empty body (the official app's builder passes a null
     // payload). The strap drops the link and re-advertises after boot; stored data is KEPT
     // (non-destructive), though an in-flight offload is interrupted (chunk-acked, so nothing is lost).
-    // Opcode 29 is shared across WHOOP 4.0 (harvard/crc8) and 5/MG (puffin/crc16); the 4.0 form is
-    // confirmed, the 5/MG framing is NOT hardware-confirmed — rebootStrap() logs the COMMAND_RESPONSE
-    // so a strap log confirms acceptance. User-initiated + confirmation-gated only; never automatic.
+    // Opcode 29 is shared across WHOOP 4.0 (harvard/crc8) and 5/MG (puffin/crc16). The 5.0 form is
+    // hardware-confirmed (fw 50.40.1.0, #227); the 4.0 form is NOT — a real 4.0 silently IGNORES this
+    // empty-body frame (#235: no reboot, no disconnect, no COMMAND_RESPONSE), so the correct 4.0 frame
+    // still needs an HCI capture. rebootStrap() logs the COMMAND_RESPONSE + a no-disconnect watchdog so a
+    // strap log shows which case it hit. User-initiated + confirmation-gated only; never automatic.
     // Port of Swift WhoopCommand.rebootStrap.
     REBOOT_STRAP(29),
     GET_DATA_RANGE(34),

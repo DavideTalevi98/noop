@@ -25,10 +25,12 @@ public enum WhoopCommand: UInt8, CaseIterable {
     /// `rh0.C45476d0` passes a null payload). The strap drops the BLE link and re-advertises after boot;
     /// **stored data is kept** (non-destructive), but any in-flight offload is interrupted (chunk-acked,
     /// so nothing is lost — it re-offloads on reconnect). Opcode 29 is shared across WHOOP 4.0 (harvard,
-    /// crc8) and 5/MG (puffin, crc16); the 4.0 form is confirmed from the app builder, the 5/MG framing is
-    /// NOT hardware-confirmed yet — `BLEManager.rebootStrap()` logs the strap's COMMAND_RESPONSE so a 5/MG
-    /// owner's strap log confirms whether the puffin frame is accepted. User-initiated + confirmation-gated
-    /// only; never sent automatically. Driven only by `BLEManager.rebootStrap()`.
+    /// crc8) and 5/MG (puffin, crc16). The **5.0 form is hardware-confirmed** (fw 50.40.1.0, #227). The
+    /// **4.0 form is NOT confirmed** — it was decoded from the app builder but a real 4.0 silently ignores
+    /// this empty-body frame (#235): no reboot, no disconnect, no COMMAND_RESPONSE. The correct 4.0 frame
+    /// (a payload byte? a different opcode?) needs an HCI capture. `BLEManager.rebootStrap()` logs the
+    /// strap's COMMAND_RESPONSE + a no-disconnect watchdog so a strap log shows which case it hit.
+    /// User-initiated + confirmation-gated only; never sent automatically. Driven only by `BLEManager.rebootStrap()`.
     case rebootStrap           = 29
     case getDataRange          = 34
     case getHelloHarvard       = 35

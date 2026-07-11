@@ -2403,7 +2403,7 @@ class WhoopBleClient(
         // Supersede any still-pending reboot (cancels its timers + resets the flag) so a repeat tap can't
         // leave a stale watchdog/settle timer that fires during this new reboot's window.
         clearRebootState()
-        val framing = if (family == DeviceFamily.WHOOP5) "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" else "harvard-crc8"
+        val framing = if (family == DeviceFamily.WHOOP5) "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" else "harvard-crc8 (UNVERIFIED on 4.0)"
         val fw = _state.value.strapFirmware ?: "unknown"
         log("reboot: request family=$family fw=$fw connected=true bonded=true")
         log("reboot: sent opcode=29 framing=$framing payload=empty writeType=withResponse")
@@ -2421,7 +2421,7 @@ class WhoopBleClient(
         val work = Runnable {
             if (rebootRequestedAtMs != null && _state.value.connected) {
                 log("reboot: no disconnect within 12s — strap may have ignored the command" +
-                    if (connectedFamily == DeviceFamily.WHOOP5) " (5/MG reboot is verified on 5.0 fw 50.40.1.0; if your firmware differs, please share this log on #166)" else "")
+                    if (connectedFamily == DeviceFamily.WHOOP5) " (5/MG reboot is verified on 5.0 fw 50.40.1.0; if your firmware differs, please share this log on #166)" else " (the WHOOP 4.0 reboot frame is NOT confirmed yet — please share this log on #235)")
                 clearRebootState()
             }
         }
