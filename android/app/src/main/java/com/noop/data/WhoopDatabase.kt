@@ -57,6 +57,16 @@ abstract class WhoopDatabase : RoomDatabase() {
     companion object {
         const val DB_NAME = "noop_whoop.db"
 
+        /**
+         * Current schema version. Kept as a plain const so plain-JVM tests can pin it without
+         * reflecting on the @Database annotation (which has CLASS-level retention, invisible at
+         * runtime). Must equal the `version` argument on the @Database annotation above; any
+         * bump here MUST be accompanied by a new MIGRATION_X_Y constant + its *MigrationTest,
+         * and a WhoopDatabaseChainTest update — the test enforces the chain is contiguous up to
+         * (DB_VERSION - 1) so a gap will fail CI before it reaches a user device.
+         */
+        const val DB_VERSION = 18
+
         @Volatile
         private var instance: WhoopDatabase? = null
 
