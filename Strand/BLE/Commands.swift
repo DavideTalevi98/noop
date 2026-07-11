@@ -5,14 +5,18 @@ import WhoopProtocol
 ///
 /// Raw values are the on-wire command codes (from whoomp/scripts/packet.py `CommandNumber`).
 /// This is intentionally a *subset*: DESTRUCTIVE commands that wipe data or brick the strap
-/// (firmware load/DFU, force-trim, ship-mode, power-cycle, fuel-gauge reset) stay deliberately
-/// EXCLUDED so the in-app command sender can never form those bytes.
+/// (firmware load/DFU, force-trim, ship-mode, fuel-gauge reset) stay deliberately EXCLUDED so the
+/// in-app command sender can never form those bytes.
 ///
-/// The ONE exception is `rebootStrap` (29): a plain restart is non-destructive (the strap keeps
-/// its stored data and just re-advertises after boot), and NOOP already triggers a reboot today via
-/// `setAdvertisingNameHarvard` (rename applies on reboot). It is a deliberate, user-initiated,
-/// confirmation-gated action — never sent automatically. See `BLEManager.rebootStrap()` and the
-/// "Destructive commands" note in docs/PROTOCOL.md.
+/// TWO restart opcodes are included, both non-destructive (a restart keeps the strap's stored data)
+/// and both user-initiated + confirmation-gated, never sent automatically:
+///   - `rebootStrap` (29): the normal Restart. NOOP already triggers a reboot today via
+///     `setAdvertisingNameHarvard` (rename applies on reboot). See `BLEManager.rebootStrap()`.
+///   - `powerCycleStrap` (32): a harder restart, included ONLY as a candidate for the WHOOP 4.0
+///     reboot probe (Test Centre → Connection, 4.0 only). The 4.0 ignores opcode 29/empty (#235) and
+///     the correct frame is unknown, so the probe tries this alongside 29-with-payload on real 4.0
+///     hardware to find which one actually reboots. Driven only by `BLEManager.rebootProbe(_:)`.
+/// See the "Destructive commands" note in docs/PROTOCOL.md.
 public enum WhoopCommand: UInt8, CaseIterable {
     case toggleRealtimeHR      = 3
     case reportVersionInfo     = 7
@@ -32,6 +36,13 @@ public enum WhoopCommand: UInt8, CaseIterable {
     /// strap's COMMAND_RESPONSE + a no-disconnect watchdog so a strap log shows which case it hit.
     /// User-initiated + confirmation-gated only; never sent automatically. Driven only by `BLEManager.rebootStrap()`.
     case rebootStrap           = 29
+    /// POWER_CYCLE_STRAP (32) — a harder restart than REBOOT_STRAP (a full power cycle of the strap
+    /// SoC vs a warm reboot). Non-destructive: stored data lives in flash and survives, the strap
+    /// re-advertises after boot. Included ONLY as a gated candidate for the WHOOP 4.0 reboot probe
+    /// (#235: a real 4.0 silently ignores opcode 29/empty, and the correct 4.0 reboot frame is unknown).
+    /// NOT hardware-confirmed on any family. Sent only via `BLEManager.rebootProbe(.powerCycle32Empty)`,
+    /// itself gated behind Test Centre → Connection + a confirmation. Never sent automatically.
+    case powerCycleStrap       = 32
     case getDataRange          = 34
     case getHelloHarvard       = 35
     /// WHOOP 5.0/MG hello (the puffin generation's GET_HELLO). The response carries the device name
@@ -109,6 +120,7 @@ public enum WhoopCommand: UInt8, CaseIterable {
         case .historicalDataResult:  return "Historical Data Result"
         case .getBatteryLevel:       return "Get Battery Level"
         case .rebootStrap:           return "Reboot Strap"
+        case .powerCycleStrap:       return "Power Cycle Strap"
         case .getDataRange:          return "Get Data Range"
         case .getHelloHarvard:       return "Get Hello (Harvard)"
         case .getHello:              return "Get Hello (5/MG)"
@@ -199,5 +211,48 @@ public enum WhoopCommand: UInt8, CaseIterable {
             UInt8((trailer >> 24) & 0xFF),
         ]
         return [0xAA] + lenBytes + [headerCRC] + inner + trailerBytes
+    }
+}
+
+/// Candidate reboot frames for the WHOOP 4.0 reboot probe (Test Centre → Connection, WHOOP 4.0 only).
+///
+/// A real WHOOP 4.0 silently ignores NOOP's production reboot frame (opcode 29 REBOOT_STRAP, empty
+/// body — #235: no reboot, no disconnect, no COMMAND_RESPONSE), and the correct 4.0 frame is unknown.
+/// These are the plausible NON-DESTRUCTIVE candidates — a restart / power-cycle only, never a
+/// data-wiping opcode — tried one at a time on real hardware so the strap log tells which one works:
+/// `reboot: link dropped …` = the strap acted; `reboot: no disconnect within 12s …` = ignored.
+///
+/// The definitive fix is still an HCI capture of the official app rebooting a 4.0 (exactly how the
+/// alarm frame was pinned — @ujix's capture, #535). This probe is the interim way to find the frame
+/// when a 4.0 is in hand. The Kotlin twin is `RebootProbeVariant` (WhoopBleClient.kt); the `logTag`
+/// strings are byte-identical across platforms so a strap log reads the same either side.
+public enum RebootProbeVariant: String, CaseIterable, Sendable {
+    /// A — opcode 29 REBOOT_STRAP, empty body: NOOP's current production frame (ignored on 4.0).
+    case reboot29Empty
+    /// B — opcode 32 POWER_CYCLE_STRAP, empty body: a harder restart, never tried.
+    case powerCycle32Empty
+    /// C — opcode 29 REBOOT_STRAP, payload [0x01]: same opcode with a non-empty sub-command byte.
+    case reboot29Payload1
+
+    var command: WhoopCommand { self == .powerCycle32Empty ? .powerCycleStrap : .rebootStrap }
+    var payload: [UInt8] { self == .reboot29Payload1 ? [0x01] : [] }
+    var opcode: Int { self == .powerCycle32Empty ? 32 : 29 }
+
+    /// Short menu label, e.g. "A · REBOOT_STRAP(29) empty".
+    public var menuLabel: String {
+        switch self {
+        case .reboot29Empty:     return "A · REBOOT_STRAP(29) empty"
+        case .powerCycle32Empty: return "B · POWER_CYCLE(32) empty"
+        case .reboot29Payload1:  return "C · REBOOT_STRAP(29) payload=01"
+        }
+    }
+
+    /// Tag written to the strap log so each attempt is correlatable (byte-identical to Kotlin).
+    public var logTag: String {
+        switch self {
+        case .reboot29Empty:     return "A/reboot29-empty"
+        case .powerCycle32Empty: return "B/powercycle32-empty"
+        case .reboot29Payload1:  return "C/reboot29-payload01"
+        }
     }
 }

@@ -403,20 +403,33 @@ data, brick, or power-cycle the strap. NOOP must never send them.
 | Code | Command | Hazard |
 |-----:|---------|--------|
 | 25 | `FORCE_TRIM` | discards stored data |
-| 32 | `POWER_CYCLE_STRAP` | power-cycles |
+| 32 | `POWER_CYCLE_STRAP` | power-cycles (gated probe exception — see below) |
 | 36 | `START_FIRMWARE_LOAD` | firmware write |
 | 37 | `LOAD_FIRMWARE_DATA` | firmware write |
 | 38 | `PROCESS_FIRMWARE_IMAGE` | firmware write |
 | 45 | `ENTER_BLE_DFU` | enters DFU bootloader |
-
-**One guarded exception — `REBOOT_STRAP` (29).** A plain restart is the one command on this list that
-is *non-destructive*: the strap keeps its stored data and just re-advertises after boot, and NOOP
-already triggers a reboot today via `SET_ADVERTISING_NAME_HARVARD` (rename applies on reboot). It is
-in `WhoopCommand` as `rebootStrap`, but sent **only** from the user-initiated, confirmation-gated
-"Restart strap" action (`BLEManager.rebootStrap()` / `WhoopBleClient.rebootStrap()`) — never
-automatically, and never as part of any connect/offload path (#166). Everything else in this table
-stays out of the enum entirely.
 | 99 | `RESET_FUEL_GAUGE` | resets battery fuel gauge |
+
+**Two guarded exceptions — both restarts, both non-destructive** (a restart keeps the strap's stored
+data and just re-advertises after boot). Neither is ever sent automatically or on any connect/offload path.
+
+- **`REBOOT_STRAP` (29)** — the normal Restart. NOOP already triggers a reboot today via
+  `SET_ADVERTISING_NAME_HARVARD` (rename applies on reboot). In `WhoopCommand` as `rebootStrap`, sent only
+  from the user-initiated, confirmation-gated "Restart strap" action (`BLEManager.rebootStrap()` /
+  `WhoopBleClient.rebootStrap()`) (#166).
+- **`POWER_CYCLE_STRAP` (32)** — a harder restart, in the enum as `powerCycleStrap` **only** as a candidate
+  for the WHOOP 4.0 reboot probe (below). Sent only from `rebootProbe(.powerCycle32Empty)`, itself gated
+  behind Test Centre → Connection + a confirmation, and 4.0-only. Never on a default install.
+
+Everything else in this table stays out of the enum entirely.
+
+**WHOOP 4.0 reboot probe (#235).** A real 4.0 silently ignores the production `REBOOT_STRAP` frame (see
+below) and the correct 4.0 reboot frame is unknown. The probe (Test Centre → Connection, 4.0 only) sends
+one non-destructive candidate at a time — `REBOOT_STRAP(29)` empty, `POWER_CYCLE_STRAP(32)` empty, or
+`REBOOT_STRAP(29)` with `[0x01]` — reusing the reboot watchdog so the strap log shows which one drops the
+link (worked) vs is ignored. The definitive fix is still an HCI capture of the official app rebooting a
+4.0 (the way the alarm frame was pinned, #535). Driven by `BLEManager.rebootProbe(_:)` /
+`WhoopBleClient.rebootProbe(...)`; candidates enumerated in `RebootProbeVariant`.
 
 **Payload forms** (decoded from the official app's command builders — recorded so the wire format is
 *known*: for the destructive commands, known-and-avoidable; for the one guarded exception,

@@ -38,6 +38,7 @@ import com.noop.protocol.DeviceFamily
 import com.noop.protocol.Framing
 import com.noop.protocol.HapticClock
 import com.noop.protocol.Reassembler
+import com.noop.protocol.RebootProbeVariant
 import com.noop.protocol.Streams
 import com.noop.protocol.Whoop5Config
 import com.noop.protocol.extractStreams
@@ -2395,6 +2396,29 @@ class WhoopBleClient(
      * framing, is triageable from a strap log.
      */
     fun rebootStrap() {
+        // Production Restart: opcode 29 REBOOT_STRAP, empty body per the official app's builder.
+        // Confirmed on WHOOP 5.0 (#227); ignored on 4.0 (#235 — see rebootProbe).
+        sendRebootFrame(CommandNumber.REBOOT_STRAP, 29, byteArrayOf(), null)
+    }
+
+    /** Send one candidate reboot frame from the WHOOP 4.0 reboot probe (Test Centre → Connection).
+     *  WHOOP 4.0 only — a 5.0 already reboots on the production frame (#227), so there is nothing to
+     *  probe there. Reuses the full reboot watchdog/trail so the strap log shows whether THIS candidate
+     *  dropped the link (`reboot: link dropped …`) or was ignored (`reboot: no disconnect within 12s …`).
+     *  Confirmation-gated at the call site (DevicesScreen). Twin of macOS BLEManager.rebootProbe. */
+    fun rebootProbe(variant: RebootProbeVariant) {
+        if (connectedFamily != DeviceFamily.WHOOP4) {
+            log("reboot: probe is WHOOP 4.0 only — ignored (family=$connectedFamily)")
+            return
+        }
+        sendRebootFrame(variant.command, variant.opcode, variant.payload, variant)
+    }
+
+    /** Shared reboot send + debug trail + watchdog, used by both the production [rebootStrap] and the
+     *  4.0 [rebootProbe]. `probe == null` is the normal restart; a non-null variant is a probe attempt
+     *  (its `logTag` is stamped first so the strap log correlates the attempt with what the strap did).
+     *  Twin of macOS BLEManager.sendRebootFrame. */
+    private fun sendRebootFrame(command: CommandNumber, opcode: Int, payload: ByteArray, probe: RebootProbeVariant?) {
         val family = connectedFamily
         if (!_state.value.connected || !_state.value.bonded || gatt == null) {
             log("reboot: connect + bond first — ignored (connected=${_state.value.connected} bonded=${_state.value.bonded})")
@@ -2405,10 +2429,12 @@ class WhoopBleClient(
         clearRebootState()
         val framing = if (family == DeviceFamily.WHOOP5) "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" else "harvard-crc8 (UNVERIFIED on 4.0)"
         val fw = _state.value.strapFirmware ?: "unknown"
+        val payloadDesc = if (payload.isEmpty()) "empty" else payload.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        if (probe != null) log("reboot: PROBE ${probe.logTag} — trying an unconfirmed WHOOP 4.0 reboot frame (#235)")
         log("reboot: request family=$family fw=$fw connected=true bonded=true")
-        log("reboot: sent opcode=29 framing=$framing payload=empty writeType=withResponse")
-        // Empty body per the official app's builder. withResponse so the ATT write is acked before the drop.
-        send(CommandNumber.REBOOT_STRAP, byteArrayOf(), withResponse = true)
+        log("reboot: sent opcode=$opcode framing=$framing payload=$payloadDesc writeType=withResponse")
+        // withResponse so the ATT write is acked before the strap drops the link.
+        send(command, payload, withResponse = true)
         rebootRequestedAtMs = SystemClock.elapsedRealtime()
         // Drive the Devices "Reconnecting…" pill: true until the strap reconnects (or a terminal path
         // clears it). The pill only shows it once the link actually drops (it gates on !connected).

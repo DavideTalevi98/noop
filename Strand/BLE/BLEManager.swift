@@ -737,6 +737,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// isn't. Mirrors the Android `LiveState.whoop5Detected` signal the equivalent screen reads.
     var isWhoop5: Bool { selectedModel.deviceFamily == .whoop5 }
 
+    /// True when the selected/connected strap is a WHOOP 4.0. Read-only window onto the private
+    /// `selectedModel`, used to gate the 4.0-only reboot probe (Test Centre → Connection) in the UI.
+    var isWhoop4: Bool { selectedModel.deviceFamily == .whoop4 }
+
     /// Stable device id; matches the server's existing device for sync parity. Overridable.
     /// Seeded from the init argument, then refined once in bootstrapStore() to the device registry's
     /// active id (still "my-whoop" today) before any store writes use it — see bootstrapStore().
@@ -2207,6 +2211,28 @@ public final class BLEManager: NSObject, ObservableObject {
     ///   `reboot: no disconnect within …` — strap ignored it (esp. an unverified 5/MG frame)
     ///   `reboot: reconnected …` — the connect handshake, round-trip complete
     public func rebootStrap() {
+        // Production Restart: opcode 29 REBOOT_STRAP, empty body per the official app's builder
+        // (rh0.C45476d0). Confirmed on WHOOP 5.0 (#227); ignored on 4.0 (#235 — see rebootProbe).
+        sendRebootFrame(command: .rebootStrap, opcode: 29, payload: [], probe: nil)
+    }
+
+    /// Send one candidate reboot frame from the WHOOP 4.0 reboot probe (Test Centre → Connection).
+    /// WHOOP 4.0 only — a 5.0 already reboots on the production frame (#227), so there is nothing to
+    /// probe there. Reuses the full reboot watchdog/trail, so the strap log shows whether THIS candidate
+    /// dropped the link (`reboot: link dropped …` = it worked) or was ignored (`reboot: no disconnect
+    /// within 12s …`). Confirmation-gated at the call site (DevicesView). See `RebootProbeVariant`.
+    public func rebootProbe(_ variant: RebootProbeVariant) {
+        guard selectedModel.deviceFamily == .whoop4 else {
+            log("reboot: probe is WHOOP 4.0 only — ignored (family=\(selectedModel.deviceFamily))")
+            return
+        }
+        sendRebootFrame(command: variant.command, opcode: variant.opcode, payload: variant.payload, probe: variant)
+    }
+
+    /// Shared reboot send + debug trail + watchdog, used by both the production `rebootStrap()` and the
+    /// 4.0 `rebootProbe(_:)`. `probe == nil` is the normal restart; a non-nil variant is a probe attempt
+    /// (its `logTag` is stamped first so the strap log correlates the attempt with what the strap did).
+    private func sendRebootFrame(command: WhoopCommand, opcode: Int, payload: [UInt8], probe: RebootProbeVariant?) {
         let family = selectedModel.deviceFamily
         guard state.connected, state.bonded, let p = peripheral, p.state == .connected else {
             log("reboot: connect + bond first — ignored (connected=\(state.connected) bonded=\(state.bonded))")
@@ -2217,11 +2243,12 @@ public final class BLEManager: NSObject, ObservableObject {
         clearRebootState()
         let framing = family == .whoop5 ? "puffin-crc16 (verified on 5.0 fw 50.40.1.0)" : "harvard-crc8 (UNVERIFIED on 4.0)"
         let fw = state.strapFirmware ?? "unknown"
+        let payloadDesc = payload.isEmpty ? "empty" : payload.map { String(format: "%02x", $0) }.joined()
+        if let probe { log("reboot: PROBE \(probe.logTag) — trying an unconfirmed WHOOP 4.0 reboot frame (#235)") }
         log("reboot: request family=\(family) fw=\(fw) connected=true bonded=true")
-        log("reboot: sent opcode=29 framing=\(framing) payload=empty writeType=withResponse")
-        // Empty body per the official app's builder (rh0.C45476d0). .withResponse so the write itself is
-        // acknowledged at the ATT layer before the strap drops the link.
-        send(.rebootStrap, payload: [], writeType: .withResponse)
+        log("reboot: sent opcode=\(opcode) framing=\(framing) payload=\(payloadDesc) writeType=withResponse")
+        // .withResponse so the write itself is acknowledged at the ATT layer before the strap drops the link.
+        send(command, payload: payload, writeType: .withResponse)
         rebootRequestedAt = .now()
         // Drive the Devices "Reconnecting…" pill: true from here until the strap reconnects (or a terminal
         // path clears it). The pill only shows it once the link actually drops (it gates on !connected).
