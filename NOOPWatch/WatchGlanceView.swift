@@ -26,7 +26,10 @@ struct WatchGlanceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(StrandPalette.surfaceBase.ignoresSafeArea())
-        .onAppear { liveHR.start() }
+        .onAppear {
+            liveHR.start()
+            store.requestLatestFromPhone()
+        }
         .onDisappear { liveHR.stop() }
     }
 

@@ -122,10 +122,10 @@ struct StrandiOSApp: App {
                 .onReceive(model.repo.$refreshSeq.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
                     Task { await WidgetSnapshot.publish(from: model) }
-                    // The watch rides the same active-only hook because the bridge now SELF-THROTTLES
-                    // (30-minute spacing + headline-change dedup, both must pass, see WatchSessionBridge),
-                    // so a refresh storm can't burn the ~50/day complication transfer budget.
-                    Task { await watch.pushLatest(from: model) }
+                    // Background urgency: 30-minute spacing + headline dedup (WatchPushPolicy), so a
+                    // refreshSeq storm can't burn the ~50/day complication transfer budget. Foreground /
+                    // launch / watch-pull use .interactive or .immediate instead.
+                    Task { await watch.pushLatest(from: model, urgency: .background) }
                 }
                 // #114: strap battery % and connection are LIVE (model.live), not repo-cache, so they never
                 // bump refreshSeq — the widget's battery would otherwise never move while the app is open
@@ -166,8 +166,10 @@ struct StrandiOSApp: App {
                 // waiting for the next foreground. activate() is idempotent + a no-op where WC isn't
                 // supported, so this is safe on every device/simulator combination.
                 .task {
+                    watch.bind(model: model)
+                    WatchPublish.bridge = watch
                     watch.activate()
-                    await watch.pushLatest(from: model)
+                    await watch.pushLatest(from: model, urgency: .interactive)
                 }
         }
         // HealthKit authorization is intentionally NOT requested on launch. The system permission
@@ -191,7 +193,7 @@ struct StrandiOSApp: App {
                     // Push the wrist on the SAME refresh as the Home-screen widget so the watch, the
                     // widget and Today never disagree about which day they describe. Without this the
                     // watch only ever holds placeholder data on a real device.
-                    await watch.pushLatest(from: model)
+                    await watch.pushLatest(from: model, urgency: .interactive)
                 }
             } else if phase == .background {
                 // #114: capture the LAST in-app live state on the way out so the Home widget matches what

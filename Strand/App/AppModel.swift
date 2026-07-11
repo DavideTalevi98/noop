@@ -491,6 +491,7 @@ final class AppModel: ObservableObject {
         // widget kept showing yesterday's numbers. Publishing here, on the real "new data landed"
         // signal, pushes the fresh snapshot to the home-screen widget without needing a foreground.
         await WidgetSnapshot.publish(from: self)
+        await WatchPublish.pushLatest(from: self, urgency: .immediate)
         #endif
     }
 

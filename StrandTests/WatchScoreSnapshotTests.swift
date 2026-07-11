@@ -103,5 +103,64 @@ final class WatchScoreSnapshotTests: XCTestCase {
         // The cross-lane contract: app group + key are fixed strings both sides hard-agree on.
         XCTAssertEqual(WatchScoreSnapshot.appGroupId, "group.com.noopapp.noop")
         XCTAssertEqual(WatchScoreSnapshot.storageKey, "latestWatchSnapshot")
+        XCTAssertEqual(WatchScoreSnapshot.wcContextKey, "snapshot")
+        XCTAssertEqual(WatchScoreSnapshot.wcRequestLatestKey, "requestLatest")
+    }
+
+    func testWatchPushPolicyImmediateAlwaysPushes() {
+        let snap = WatchScoreSnapshot(charge: 70, chargeCalibrating: false,
+                                      effort: 40, effortCalibrating: false,
+                                      rest: 80, restCalibrating: false,
+                                      hr: 55, sleepSummary: "7h",
+                                      asOf: Date())
+        let now = Date()
+        XCTAssertTrue(WatchPushPolicy.shouldPush(lastSent: snap,
+                                                 lastPushedAt: now,
+                                                 next: snap,
+                                                 now: now,
+                                                 urgency: .immediate))
+    }
+
+    func testWatchPushPolicyBackgroundRespectsIntervalAndHeadline() {
+        let a = WatchScoreSnapshot(charge: 70, chargeCalibrating: false,
+                                   effort: 40, effortCalibrating: false,
+                                   rest: 80, restCalibrating: false,
+                                   hr: 55, sleepSummary: "7h",
+                                   asOf: Date())
+        let b = WatchScoreSnapshot(charge: 71, chargeCalibrating: false,
+                                   effort: 40, effortCalibrating: false,
+                                   rest: 80, restCalibrating: false,
+                                   hr: 55, sleepSummary: "7h",
+                                   asOf: Date())
+        let now = Date()
+        XCTAssertFalse(WatchPushPolicy.shouldPush(lastSent: a,
+                                                  lastPushedAt: now,
+                                                  next: a,
+                                                  now: now,
+                                                  urgency: .background))
+        XCTAssertTrue(WatchPushPolicy.shouldPush(lastSent: a,
+                                                 lastPushedAt: now.addingTimeInterval(-WatchPushPolicy.backgroundMinInterval - 1),
+                                                 next: b,
+                                                 now: now,
+                                                 urgency: .background))
+    }
+
+    func testWatchPushPolicyInteractiveAllowsHeartbeat() {
+        let snap = WatchScoreSnapshot(charge: 70, chargeCalibrating: false,
+                                      effort: 40, effortCalibrating: false,
+                                      rest: 80, restCalibrating: false,
+                                      hr: 55, sleepSummary: "7h",
+                                      asOf: Date())
+        let now = Date()
+        XCTAssertFalse(WatchPushPolicy.shouldPush(lastSent: snap,
+                                                  lastPushedAt: now,
+                                                  next: snap,
+                                                  now: now,
+                                                  urgency: .interactive))
+        XCTAssertTrue(WatchPushPolicy.shouldPush(lastSent: snap,
+                                                 lastPushedAt: now.addingTimeInterval(-WatchPushPolicy.interactiveMinInterval - 1),
+                                                 next: snap,
+                                                 now: now,
+                                                 urgency: .interactive))
     }
 }

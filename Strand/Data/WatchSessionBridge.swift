@@ -29,15 +29,17 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     /// When the last snapshot was actually pushed, the other half of the push gate. nil until the first
     /// push of this process, which therefore always passes the spacing check.
     private var lastPushedAt: Date?
-    /// Minimum spacing between pushes (30 minutes). Complication/context transfers ride a system budget
-    /// (~50/day for complication updates), so `pushLatest` never sends more often than this, and only
-    /// when the headline values actually changed. BOTH checks must pass; see `shouldPush`.
-    static let minPushInterval: TimeInterval = 30 * 60
+    /// Minimum spacing between background pushes (30 minutes). Interactive/immediate paths bypass this;
+    /// see `WatchPushPolicy`.
+    static let minPushInterval = WatchPushPolicy.backgroundMinInterval
     /// Whether a watch is currently paired + has the NOOP watch app installed + is reachable enough to
     /// receive context. Application context still queues for delivery when the watch is briefly away, so
     /// this is informational, not a gate on sending.
     @Published private(set) var isWatchReachable = false
 
+    /// The live app model, set once at launch. Used to rebuild a fresh snapshot when the watch asks for
+    /// the latest rather than echoing a possibly stale app-group mirror.
+    private weak var model: AppModel?
     private let session: WCSession?
 
     override init() {
@@ -46,6 +48,12 @@ final class WatchSessionBridge: NSObject, ObservableObject {
         // so callers never need to branch.
         self.session = WCSession.isSupported() ? WCSession.default : nil
         super.init()
+    }
+
+    /// Wire the phone-side model so watch pull-requests rebuild from live scores instead of only
+    /// re-mirroring the last app-group bytes.
+    func bind(model: AppModel) {
+        self.model = model
     }
 
     /// Activate the session. Safe to call more than once (WCSession ignores a redundant activate). The
@@ -72,17 +80,21 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     ///
     /// `async` because Rest (sleep_performance) lives in a computed metric series rather than a
     /// `DailyMetric` column, so it needs an `exploreSeries` read (mirrors `WidgetSnapshot.publish`).
-    func sendLatest(from model: AppModel) async {
+    func sendLatest(from model: AppModel, urgency: WatchPushUrgency = .background) async {
         let snap = await Self.buildSnapshot(from: model)
         // A contentless snapshot (a cold launch races the first repo refresh, so `days` is still empty)
         // must NOT push: it would stomp the watch's last REAL data with the empty state AND burn the
-        // 30-minute spacing gate, locking out the genuine snapshot that lands seconds later. Skip
-        // without touching lastPushedAt/lastSent, so the first real snapshot passes the gate untouched.
+        // spacing gate, locking out the genuine snapshot that lands seconds later. Skip without touching
+        // lastPushedAt/lastSent, so the first real snapshot passes the gate untouched.
         let contentless = snap.scoreDay == nil && snap.charge == nil && snap.effort == nil
             && snap.rest == nil && snap.sleepSummary.isEmpty
         if contentless { return }
         let now = Date()
-        guard shouldPush(snap, now: now) else { return }
+        guard WatchPushPolicy.shouldPush(lastSent: lastSent,
+                                         lastPushedAt: lastPushedAt,
+                                         next: snap,
+                                         now: now,
+                                         urgency: urgency) else { return }
         lastPushedAt = now
         send(snap)
     }
@@ -90,37 +102,12 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     /// Build the latest snapshot off `model` and push it to the watch. The entrypoint the iOS app entry
     /// calls from the SAME refresh that republishes the Home-screen widget (scenePhase active, after a
     /// Health sync, and on an active-phase refreshSeq bump), so the wrist updates in lockstep with the
-    /// widget instead of only ever showing placeholder data. Thin alias over `sendLatest` and therefore
-    /// self-throttled the same way; named for the app-entry call site to read clearly.
-    func pushLatest(from model: AppModel) async {
-        await sendLatest(from: model)
+    /// widget instead of only ever showing placeholder data.
+    func pushLatest(from model: AppModel, urgency: WatchPushUrgency = .background) async {
+        await sendLatest(from: model, urgency: urgency)
     }
 
-    /// The budget gate: complication/context transfers share a ~50/day system budget, so a push must
-    /// pass BOTH checks. (1) Spacing: at least `minPushInterval` since the last actual push (nil = never
-    /// pushed this process, passes). (2) Substance: the snapshot's HEADLINE values differ from the last
-    /// pushed one, so an unchanged dashboard never burns a transfer re-stating the same scores.
-    private func shouldPush(_ snap: WatchScoreSnapshot, now: Date) -> Bool {
-        if let at = lastPushedAt, now.timeIntervalSince(at) < Self.minPushInterval { return false }
-        return Self.headlineChanged(from: lastSent, to: snap)
-    }
-
-    /// Whether the headline content of `next` differs from the last-pushed snapshot. Headline = the
-    /// scores (with their calibrating flags), the sleep summary line, and the day the scores are ABOUT.
-    /// `hr` and `asOf` are deliberately NOT headline: hr ticks ~1 Hz and `asOf` differs on every build,
-    /// so counting either as "changed" would defeat the dedup and re-send identical scores all day.
-    /// nil `last` (nothing pushed yet) always counts as changed.
-    static func headlineChanged(from last: WatchScoreSnapshot?, to next: WatchScoreSnapshot) -> Bool {
-        guard let last else { return true }
-        return last.charge != next.charge
-            || last.chargeCalibrating != next.chargeCalibrating
-            || last.effort != next.effort
-            || last.effortCalibrating != next.effortCalibrating
-            || last.rest != next.rest
-            || last.restCalibrating != next.restCalibrating
-            || last.sleepSummary != next.sleepSummary
-            || last.scoreDay != next.scoreDay
-    }
+    /// The budget gate lives in `WatchPushPolicy` (StrandDesign) so it is pure and unit-testable.
 
     /// Build the snapshot off the app state. Pure read; no side effects. Split out so the wiring is easy
     /// to follow and the calibrating logic sits in one place.
@@ -220,17 +207,17 @@ final class WatchSessionBridge: NSObject, ObservableObject {
             let data = try JSONEncoder().encode(snap)
             // updateApplicationContext replaces any previous context, so the watch always gets exactly
             // the latest snapshot and never a queued backlog.
-            try session.updateApplicationContext([Self.contextKey: data])
+            try session.updateApplicationContext([WatchScoreSnapshot.wcContextKey: data])
         } catch {
             // A failed context update is non-fatal: the app-group mirror above still carries the latest
             // value, and the next dashboard refresh will try again.
         }
     }
 
-    /// The key the encoded snapshot rides under inside the application context dictionary.
-    static let contextKey = "snapshot"
-    /// The message key the watch sends on launch to ask for the latest snapshot right now.
-    static let requestLatestKey = "requestLatest"
+    /// Legacy alias — prefer `WatchScoreSnapshot.wcContextKey`.
+    static let contextKey = WatchScoreSnapshot.wcContextKey
+    /// Legacy alias — prefer `WatchScoreSnapshot.wcRequestLatestKey`.
+    static let requestLatestKey = WatchScoreSnapshot.wcRequestLatestKey
 }
 
 // MARK: - WCSessionDelegate
@@ -263,16 +250,20 @@ extension WatchSessionBridge: WCSessionDelegate {
     nonisolated func session(_ session: WCSession,
                              didReceiveMessage message: [String: Any],
                              replyHandler: @escaping ([String: Any]) -> Void) {
-        guard message[Self.requestLatestKey] != nil else {
+        guard message[WatchScoreSnapshot.wcRequestLatestKey] != nil else {
             replyHandler([:])
             return
         }
-        // Read the last value we mirrored into the shared group and hand it straight back. Done off the
-        // main actor since the request arrives on WC's queue; the app-group read is process-safe.
-        if let snap = WatchScoreSnapshot.load(), let data = try? JSONEncoder().encode(snap) {
-            replyHandler([Self.contextKey: data])
-        } else {
-            replyHandler([:])
+        Task { @MainActor in
+            if let model = self.model {
+                await self.pushLatest(from: model, urgency: .immediate)
+            }
+            if let snap = self.lastSent ?? WatchScoreSnapshot.load(),
+               let data = try? JSONEncoder().encode(snap) {
+                replyHandler([WatchScoreSnapshot.wcContextKey: data])
+            } else {
+                replyHandler([:])
+            }
         }
     }
 }

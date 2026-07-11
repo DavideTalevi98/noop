@@ -78,6 +78,10 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
     public static let appGroupId = "group.com.noopapp.noop"
     /// The UserDefaults key the latest snapshot is stored under in the shared app group.
     public static let storageKey = "latestWatchSnapshot"
+    /// WatchConnectivity application-context / message key for the encoded snapshot payload.
+    public static let wcContextKey = "snapshot"
+    /// WatchConnectivity message key the watch sends when it wants a fresh rebuild from the phone.
+    public static let wcRequestLatestKey = "requestLatest"
 
     /// A neutral placeholder for previews / a not-yet-synced watch. Everything calibrating + empty so
     /// nothing fake is ever drawn.
@@ -203,5 +207,62 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
     public func save(to defaults: UserDefaults? = UserDefaults(suiteName: WatchScoreSnapshot.appGroupId)) {
         guard let defaults, let data = try? JSONEncoder().encode(self) else { return }
         defaults.set(data, forKey: WatchScoreSnapshot.storageKey)
+    }
+
+    /// Whether the headline fields of `next` differ from the last pushed snapshot. Headline = scores
+    /// (with calibrating flags), sleep summary, and the anchor day. `hr` and `asOf` are excluded so
+    /// HR ticks do not defeat dedup.
+    public static func headlineChanged(from last: WatchScoreSnapshot?, to next: WatchScoreSnapshot) -> Bool {
+        guard let last else { return true }
+        return last.charge != next.charge
+            || last.chargeCalibrating != next.chargeCalibrating
+            || last.effort != next.effort
+            || last.effortCalibrating != next.effortCalibrating
+            || last.rest != next.rest
+            || last.restCalibrating != next.restCalibrating
+            || last.sleepSummary != next.sleepSummary
+            || last.scoreDay != next.scoreDay
+    }
+}
+
+// MARK: - Watch push budget (phone-side policy, pure + testable)
+
+/// How urgently the phone should push a snapshot to the watch. Background pushes stay throttled to
+/// protect the ~50/day complication transfer budget; interactive/immediate paths bypass that gate.
+public enum WatchPushUrgency: Sendable, Equatable {
+    /// Watch pull or post-backfill: always push when the snapshot has content.
+    case immediate
+    /// Foreground / launch: push when headline changed or the last push is older than ~2 minutes.
+    case interactive
+    /// refreshSeq storms: at most once per 30 minutes and only when headline changed.
+    case background
+}
+
+public enum WatchPushPolicy {
+    /// Minimum spacing for background pushes (complication/context budget).
+    public static let backgroundMinInterval: TimeInterval = 30 * 60
+    /// Interactive pushes may repeat after this interval even when headline is unchanged, so the wrist
+    /// gets a fresh `asOf` without burning budget on every tab switch.
+    public static let interactiveMinInterval: TimeInterval = 2 * 60
+
+    /// Whether a contentful snapshot should be pushed now.
+    public static func shouldPush(lastSent: WatchScoreSnapshot?,
+                                  lastPushedAt: Date?,
+                                  next: WatchScoreSnapshot,
+                                  now: Date,
+                                  urgency: WatchPushUrgency) -> Bool {
+        let headlineChanged = WatchScoreSnapshot.headlineChanged(from: lastSent, to: next)
+        switch urgency {
+        case .immediate:
+            return true
+        case .interactive:
+            if lastPushedAt == nil { return true }
+            if headlineChanged { return true }
+            if let at = lastPushedAt, now.timeIntervalSince(at) >= interactiveMinInterval { return true }
+            return false
+        case .background:
+            if let at = lastPushedAt, now.timeIntervalSince(at) < backgroundMinInterval { return false }
+            return headlineChanged
+        }
     }
 }

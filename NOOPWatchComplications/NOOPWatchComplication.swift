@@ -71,10 +71,10 @@ struct ChargeProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<ChargeEntry>) -> Void) {
         let snap = WatchSnapshotAccess.load()
         // The phone forces a reload (WidgetCenter.reloadAllTimelines) whenever it pushes a fresh
-        // snapshot, so this periodic refresh is just a backstop. Roughly every 30 minutes keeps the
+        // snapshot, so this periodic refresh is just a backstop. Every 15 minutes keeps the
         // "as of …" age honest without burning the watch's complication budget.
-        let next = Calendar.current.date(byAdding: .minute, value: 30, to: Date())
-            ?? Date().addingTimeInterval(1800)
+        let next = Calendar.current.date(byAdding: .minute, value: 15, to: Date())
+            ?? Date().addingTimeInterval(900)
         completion(Timeline(entries: [ChargeEntry(date: Date(), snapshot: snap)], policy: .after(next)))
     }
 }
