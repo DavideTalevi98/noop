@@ -96,7 +96,7 @@ Pre-built apps you can run right now:
 
 Prefer to build it yourself? See [`docs/BUILD.md`](docs/BUILD.md).
 
-Everything runs **offline**. The only feature that ever uses the network is the optional **AI Coach**, and only with your own API key.
+Everything runs **offline**. The only features that ever use the network are (a) the optional **AI Coach**, and only with your own API key, and (b) a user-initiated **Check for updates** button that reads the public GitHub releases API — no background polling, no data sent.
 
 ---
 

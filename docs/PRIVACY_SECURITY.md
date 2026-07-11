@@ -26,10 +26,13 @@ local SQLite — has no network layer at all: no phone-home, no analytics, no ac
 no login, no cloud sync, and no telemetry. Everything NOOP computes about you lives in a
 single SQLite file on your own device.
 
-There is exactly **one** opt-in exception: the **AI Coach** (§1.1a). It is off until you
-turn it on with your own API key; when you ask it a question it sends a short text
-summary of your recent metrics to the provider you choose. Nothing else in the app ever
-touches the network, and your raw data never does.
+There are exactly **two** network exceptions, both user-initiated: the opt-in **AI Coach**
+(§1.1a) and the **Check for updates** button (§1.1b). The Coach is off until you turn it
+on with your own API key; when you ask it a question it sends a short text summary of your
+recent metrics to the provider you choose. The update check reads the project's public
+GitHub releases API only when you tap the button — no background polling, no auto-update,
+nothing about you is sent. Nothing else in the app ever touches the network, and your raw
+data never does.
 
 Data enters NOOP two ways, and leaves it (other than the optional AI Coach) only when **you**
 deliberately export it to another store on the **same device**:
@@ -40,11 +43,11 @@ deliberately export it to another store on the **same device**:
 | File import (Apple Health, WHOOP CSV, nutrition CSV) | User-selected files on disk | Read-only from disk |
 | Apple Health export, incl. iOS "Export for Shortcuts" | On-device, user-initiated | NOOP → your Apple Health, on your device only (§1.3) |
 
-The only **network** path is the opt-in AI Coach; the biometric pipeline produces no network
-traffic of any kind. The Apple Health export above is an **on-device** hand-off, not a network
-upload — see §1.3.
+The only **network** paths are the opt-in AI Coach and the user-initiated update check; the
+biometric pipeline produces no network traffic of any kind. The Apple Health export above is
+an **on-device** hand-off, not a network upload — see §1.3.
 
-### 1.1 Network code: only the optional AI Coach
+### 1.1 Network code: AI Coach and update check only
 
 The biometric pipeline and all five Swift packages
 (`WhoopProtocol`, `WhoopStore`, `StrandAnalytics`, `StrandImport`, `StrandDesign`)
@@ -55,7 +58,9 @@ main tree in v1.94), so the Swift-side privacy behaviour described here applies 
 to both. Android is a separate codebase using Room for storage and Kotlin for the BLE /
 import / Coach paths. The **only** networking anywhere in the app is the AI Coach
 (`Strand/AI/AICoach.swift` on the Swift side — macOS and iOS — `com.noop.ai.AiCoach` on
-Android), described in §1.1a. The package manifests reference dependency *download* URLs
+Android), described in §1.1a, plus the user-initiated update check (`Strand/System/UpdateChecker.swift`,
+`com.noop.update.UpdateCheck` on Android), described in §1.1b. The package manifests reference
+dependency *download* URLs
 that Swift Package Manager resolves at build time, never at runtime:
 
 ```
@@ -86,7 +91,16 @@ feature that uses the network, and only on your terms:
   provider you picked, under your own account. NOOP runs no server in between and keeps
   no copy.
 
-If you never enable the AI Coach, NOOP makes zero network connections.
+If you never enable the AI Coach and never tap **Check for updates**, NOOP makes zero network
+connections.
+
+### 1.1b Check for updates (user-initiated, read-only)
+
+Settings includes a **Check for updates** button. It makes a single read-only call to the
+project's public GitHub releases API (`api.github.com/repos/ryanbr/noop/releases/latest`)
+to compare the latest release tag with the installed version. It runs **only** when you tap
+the button — there is no background polling and no auto-update. Nothing about you or your
+device is sent; the app only reads a version number and release notes.
 
 ### 1.2 The macOS sandbox (and what it means for the AI Coach)
 
@@ -454,7 +468,7 @@ dedicated source id `nutrition-csv`, alongside your other metrics and entirely o
 
 | Surface | Risk | Mitigation | Where |
 |---------|------|------------|-------|
-| Process | Data exfiltration / network egress | Only the opt-in AI Coach networks (your key, to your chosen provider, a text summary — §1.1a) — nothing else makes a network call, and nothing is sent until you ask. The Coach's call works on Android (and on iOS if that build's entitlements allow it), but is **blocked by the macOS App Sandbox as shipped** (no `network.client` entitlement — §1.2), so macOS stays fully offline | `Strand/AI/AICoach.swift`, `android/.../ai/AiCoach.kt` |
+| Process | Data exfiltration / network egress | Only the opt-in AI Coach networks (your key, to your chosen provider, a text summary — §1.1a) and the user-initiated update check (read-only GitHub releases API — §1.1b). Nothing else makes a network call, and nothing is sent until you ask. The Coach's call works on Android (and on iOS if that build's entitlements allow it), but is **blocked by the macOS App Sandbox as shipped** (no `network.client` entitlement — §1.2), so macOS stays fully offline unless you tap Check for updates | `Strand/AI/AICoach.swift`, `android/.../ai/AiCoach.kt` |
 | Filesystem | Broad disk access | Only `files.user-selected.read-write`; data stays in the sandbox container | `Strand.entitlements`, `Strand/Collect/StorePaths.swift` |
 | BLE frames | Malformed / adversarial packets | CRC8 + CRC32 (+ CRC16 for v5) gating; reject on failure | `WhoopProtocol/Framing.swift`, `Strand/BLE/FrameRouter.swift` |
 | BLE frames | Out-of-bounds reads from short/lying length | `nil`-returning bounds-checked readers; slice clamping; min-length guards | `WhoopProtocol/Interpreter.swift` |
