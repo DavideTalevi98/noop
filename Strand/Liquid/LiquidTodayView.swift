@@ -54,6 +54,7 @@ struct LiquidTodayView: View {
     // Resolve both ONCE per data/day change in load() and read the cache in body (O(1)).
     @State private var cachedDisplayDay: DailyMetric?
     @State private var cachedReadiness: ReadinessEngine.Readiness?
+    @State private var advancedInsights: AdvancedReadinessSnapshot?
     /// The recovery-INDEPENDENT prior-day vitals carry (HRV / RHR / respiratory), resolved ONCE in load()
     /// alongside cachedDisplayDay. Fixes the v8 rollover blank: after 04:00, before tonight's sleep scores,
     /// today's row has no vitals yet, so these fall back to the last night that recorded them. Never
@@ -215,6 +216,9 @@ struct LiquidTodayView: View {
                     heartRateSection
                     yourCardsSection
                     synthesisSection
+                    if selectedDayOffset == 0, let adv = advancedInsights, adv.hasContent {
+                        AdvancedInsightsSection(snapshot: adv)
+                    }
                     recoveryVitalsSection
                     keyMetricsSection
                     lastWorkoutsSection
@@ -841,6 +845,7 @@ struct LiquidTodayView: View {
         let day = resolveDisplayDay()
         cachedDisplayDay = day
         cachedReadiness = ReadinessEngine.evaluate(days: repo.days, today: day?.day)
+        advancedInsights = await AdvancedReadinessLoader.load(repo: repo, todayKey: day?.day)
         // Prior-day vitals carry, resolved ONCE here (never in body). Bound to today's own key so it can't
         // echo today's still-forming row; only on today (a past day's own row is the whole story).
         let tkey = cachedDisplayDay?.day ?? selectedDayKey

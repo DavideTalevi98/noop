@@ -8,6 +8,9 @@ import Foundation
 ///   - `HRVAnalyzer`    — RMSSD / SDNN with range + Malik ectopic filtering.
 ///   - `Baselines`      — Winsorized-EWMA + trailing-window personal baselines.
 ///   - `RecoveryScorer` — resting HR + transparent 0–100 recovery composite.
+///   - `ANSEarlySleepEngine` — Polar-style early-sleep ANS charge (HR + RMSSD + resp).
+///   - `DualWindowReadiness` — acute 7d vs normal 60d personal band readiness.
+///   - `BaselineChangePoint` — CUSUM mean-shift detection on nightly metrics.
 ///   - `StrainScorer`   — Edwards/Banister TRIMP → 0–21 logarithmic strain.
 ///   - `SleepStager`    — sleep/wake detection + APPROXIMATE 4-class staging.
 ///   - `WorkoutDetector`— elevated-HR workout detection + calories.
