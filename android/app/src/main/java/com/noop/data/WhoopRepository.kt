@@ -1706,13 +1706,31 @@ class WhoopRepository(private val dao: WhoopDao) {
                 return com.noop.analytics.AnalyticsEngine.dayString(s.endTs, offsetSec)
             }
             // #715 — preserve EVERY session (a day with a main night + a nap must keep both); imported
-            // still wins per end-day. The old LinkedHashMap<String, SleepSession> overwrote on collision
-            // and silently dropped a second same-day session. Mirrors WhoopStore.SleepMerge (SleepMergeTests).
-            val importedDays = imported.mapTo(HashSet()) { endDay(it) }
+            // still wins per end-day. Richness exception (ryanbr/noop#241): a sparse import (no stage
+            // data on ANY of its sessions that day) must NOT clobber a computed day that HAS stage data —
+            // otherwise a stage-less WHOOP/Apple/HC re-import blanks the stage breakdown for a night the
+            // strap fully staged. Days where the import carries stages, or where neither side does, keep
+            // the imported-wins rule. Mirrors WhoopStore.SleepMerge (SleepMergeTests).
+            val importedByDay = imported.groupBy { endDay(it) }
+            val computedByDay = computed.groupBy { endDay(it) }
             val out = ArrayList<SleepSession>(imported.size + computed.size)
-            out.addAll(imported)
-            for (s in computed) if (endDay(s) !in importedDays) out.add(s)
+            for ((day, imp) in importedByDay) {
+                val comp = computedByDay[day]
+                if (comp != null && imp.none { hasStages(it) } && comp.any { hasStages(it) }) {
+                    out.addAll(comp)   // richer computed day survives a stage-less import
+                } else {
+                    out.addAll(imp)    // imported wins its day (unchanged rule)
+                }
+            }
+            for ((day, comp) in computedByDay) if (day !in importedByDay) out.addAll(comp)
             return out.sortedBy { it.startTs }
+        }
+
+        /** True when the session carries a non-empty stage payload; null, "", and "[]" carry none.
+         *  Twin of WhoopStore.SleepMerge.hasStages. */
+        private fun hasStages(s: SleepSession): Boolean {
+            val json = s.stagesJSON?.trim() ?: return false
+            return json.isNotEmpty() && json != "[]"
         }
     }
 }
