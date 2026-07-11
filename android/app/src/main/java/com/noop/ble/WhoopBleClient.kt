@@ -3678,7 +3678,9 @@ class WhoopBleClient(
                 // the accept/reject signal (the same one that exposed 5/MG haptics rejection). So a 5/MG
                 // owner's strap log confirms whether the (unverified) puffin reboot frame is accepted. The
                 // decoded result name is Android's richer twin of the macOS raw result byte. Log-only.
-                if (respCmd?.startsWith("REBOOT_STRAP") == true) {
+                // POWER_CYCLE_STRAP is matched too: it's the 4.0 reboot probe's candidate B (#235), and its
+                // result byte is exactly what tells "opcode rejected (recognized, wrong args)" from "ignored".
+                if (respCmd?.startsWith("REBOOT_STRAP") == true || respCmd?.startsWith("POWER_CYCLE_STRAP") == true) {
                     val verdict = when {
                         result == null -> "no result"
                         result.startsWith("SUCCESS") -> "accepted"
