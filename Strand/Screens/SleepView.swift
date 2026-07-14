@@ -129,7 +129,8 @@ struct SleepView: View {
                        // re-evaluates this heavy body.
                        onRefresh: { await repo.refresh() },
                        lazy: true,
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: liquidScaffoldSky(),
+                       trailing: { StrapSyncButton() }) {
             Group {
                 if let resolved {
                     // Each top-level section fades + rises in sequence on first appear (Reduce-Motion safe).

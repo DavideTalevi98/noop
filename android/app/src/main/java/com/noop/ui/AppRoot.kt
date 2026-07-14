@@ -352,6 +352,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     SleepScreen(
                         vm = viewModel,
                         onOpenJournal = { nav.navigateTopLevel(Destination.Insights.route) },
+                        onOpenDevices = { nav.navigateTopLevel(Destination.Devices.route) },
                     )
                 }
                 composable(Destination.CoupledView.route) {
@@ -364,7 +365,12 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                 composable(Destination.Intervals.route) { IntervalsScreen(viewModel) }
                 composable(Destination.Breathe.route) { BreatheScreen(viewModel) }
                 composable(Destination.Coach.route) { CoachScreen() }
-                composable(Destination.Explore.route) { TrendsExploreScreen(viewModel) }
+                composable(Destination.Explore.route) {
+                    TrendsExploreScreen(
+                        vm = viewModel,
+                        onOpenDevices = { nav.navigateTopLevel(Destination.Devices.route) },
+                    )
+                }
                 composable(Destination.Automations.route) { AutomationsScreen(viewModel) }
                 composable(Destination.SmartAlarm.route) { SmartAlarmScreen(viewModel) }
                 composable(Destination.Workouts.route) { WorkoutsScreen(viewModel) }
@@ -377,7 +383,12 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                         onBreathe = { nav.navigateTopLevel(Destination.Breathe.route) },
                     )
                 }
-                composable(Destination.Trends.route) { TrendsScreen(viewModel) }
+                composable(Destination.Trends.route) {
+                    TrendsScreen(
+                        vm = viewModel,
+                        onOpenDevices = { nav.navigateTopLevel(Destination.Devices.route) },
+                    )
+                }
                 composable(Destination.Insights.route) { InsightsScreen(viewModel, onOpenInsightsHub = { nav.navigateTopLevel(Destination.InsightsHub.route) }) }
                 composable(Destination.Compare.route) { CompareScreen(viewModel) }
                 composable(Destination.Health.route) {
@@ -432,7 +443,11 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                 // The "More" page — the iOS More tab's twin: a navigated ScreenScaffold page hosting the
                 // full grouped destination list (was a pull-up sheet). A row navigates top-level.
                 composable(Destination.More.route) {
-                    MoreScreen(onNavigate = { nav.navigateTopLevel(it) })
+                    MoreScreen(
+                        viewModel = viewModel,
+                        onNavigate = { nav.navigateTopLevel(it) },
+                        onOpenDevices = { nav.navigateTopLevel(Destination.Devices.route) },
+                    )
                 }
             }
         }
@@ -556,7 +571,11 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
 /** The full grouped destination list as a navigated page (the iOS More tab's twin). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MoreScreen(onNavigate: (String) -> Unit) {
+private fun MoreScreen(
+    viewModel: AppViewModel,
+    onNavigate: (String) -> Unit,
+    onOpenDevices: () -> Unit,
+) {
     // S2 parity: each group's open/closed state, seeded from `defaultExpanded` (Insights + Body open,
     // Data + App collapsed). PERSISTED (#860 item 2): the user's open/closed choice must survive leaving
     // and re-entering the More page (and relaunch), not reset to the seed every visit. Backed by
@@ -573,6 +592,7 @@ private fun MoreScreen(onNavigate: (String) -> Unit) {
     ScreenScaffold(
         title = "More",
         subtitle = "Everything else, one tap away",
+        trailing = { StrapSyncIcon(vm = viewModel, onOpenDevices = onOpenDevices) },
     ) {
         // Mirror the iOS More page: each group is a tappable UPPERCASE overline header (with a disclosure
         // chevron) over a single grouped white NoopCard whose rows are tight (accent icon + title +

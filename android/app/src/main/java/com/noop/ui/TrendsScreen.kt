@@ -80,7 +80,7 @@ private val LIQUID_HERO_FILL: Color = Color(red = 13f / 255f, green = 14f / 255f
 private val LIQUID_HERO_RADIUS: Dp = 26.dp
 
 @Composable
-fun TrendsScreen(vm: AppViewModel) {
+fun TrendsScreen(vm: AppViewModel, onOpenDevices: () -> Unit = {}) {
     // Reactive cache (oldest → newest) as the immediate backing.
     val reactiveDays by vm.recentDays.collectAsStateWithLifecycle()
 
@@ -146,6 +146,7 @@ fun TrendsScreen(vm: AppViewModel) {
     LazyScreenScaffold(
         title = "Trends",
         subtitle = "The thread of you over time.",
+        trailing = { StrapSyncIcon(vm = vm, onOpenDevices = onOpenDevices) },
         // LIQUID SKY BACKDROP (the pilot pattern — LiquidScreenSky.kt): the time-of-day liquid sky settles
         // into the theme canvas behind the header + top rows, full-bleed via the scaffold's topBackground
         // plumbing. Static (LiquidSkyStatic, inside the helper) — never an animated sky behind a scrolling

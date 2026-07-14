@@ -132,6 +132,7 @@ import kotlin.math.roundToInt
 fun SleepScreen(
     vm: AppViewModel,
     onOpenJournal: () -> Unit = {},
+    onOpenDevices: () -> Unit = {},
 ) {
     val days by vm.recentDays.collectAsStateWithLifecycle()
 
@@ -366,6 +367,7 @@ fun SleepScreen(
     LazyScreenScaffold(
         title = "Sleep",
         subtitle = "Last night, read in two seconds.",
+        trailing = { StrapSyncIcon(vm = vm, onOpenDevices = onOpenDevices) },
         // LIQUID SKY BACKDROP (the pilot pattern — LiquidScreenSky.kt): the static time-of-day liquid sky
         // settles into the theme canvas behind the header + hero, bled full-width up behind the status bar
         // via the scaffold's topBackground plumbing. Gated on the day-cycle preference exactly like Today

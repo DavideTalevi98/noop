@@ -1006,6 +1006,7 @@ fun TodayScreen(
                 humanDate = humanDate,
                 selectedDay = selectedDay,
                 batteryPct = if (liveSnap.connected) liveSnap.batteryPct else null,
+                vm = viewModel,
                 onPickDay = { offset -> selectedDayOffset = offset },
                 onQuickActions = onQuickActions,
                 onOpenSettings = onOpenSettings,
@@ -1863,6 +1864,7 @@ private fun LiquidTodayHeader(
     humanDate: String,
     selectedDay: LocalDate,
     batteryPct: Double?,
+    vm: AppViewModel,
     onPickDay: (Int) -> Unit,
     onQuickActions: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -1939,11 +1941,12 @@ private fun LiquidTodayHeader(
             )
         }
 
-        // RIGHT: the controls, in order — avatar · + · battery ring. Each ~34dp, 8dp apart.
+        // RIGHT: the controls, in order — sync · avatar · + · battery ring. Each ~34dp, 8dp apart.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            StrapSyncIcon(vm = vm, onOpenDevices = onOpenDevices, liquidStyle = true)
             // (a) Profile avatar (the photo set in Settings, or the NOOP loop mark) → Settings. Mirrors iOS.
             Box(
                 modifier = Modifier

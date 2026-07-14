@@ -235,12 +235,12 @@ private fun statOf(values: List<Double>): Stat {
 // MARK: - Screen
 
 @Composable
-fun TrendsExploreScreen(vm: AppViewModel) {
+fun TrendsExploreScreen(vm: AppViewModel, onOpenDevices: () -> Unit = {}) {
     // The Deep Timeline (#575) is presented INLINE from Explore , no NavHost route needed, so this stays
     // self-contained in the Explore entry-point file. System back / the in-screen reset returns here.
     var showDeepTimeline by remember { mutableStateOf(false) }
     if (showDeepTimeline) {
-        FullDayChartScreen(vm = vm, onBack = { showDeepTimeline = false })
+        FullDayChartScreen(vm = vm, onBack = { showDeepTimeline = false }, onOpenDevices = onOpenDevices)
         return
     }
 

@@ -289,6 +289,11 @@ struct RootView: View {
             .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selection)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    StrapSyncButton()
+                }
+            }
         }
         .task {
             await repo.refresh()

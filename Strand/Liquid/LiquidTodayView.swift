@@ -378,6 +378,7 @@ struct LiquidTodayView: View {
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 8) {
+                    StrapSyncButton(liquidStyle: true)
                     // Profile pic (the one set in Settings) → opens Settings, matching the classic Today.
                     Button { showSettings = true } label: {
                         ProfileAvatarView(imageData: profile.avatarImageData, size: 34)

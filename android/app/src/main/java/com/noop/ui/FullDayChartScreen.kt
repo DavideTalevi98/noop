@@ -59,7 +59,7 @@ private enum class TimelineMetric(val title: String) {
 }
 
 @Composable
-fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
+fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit, onOpenDevices: () -> Unit = {}) {
     BackHandler(onBack = onBack)
     // #908: the deep timeline follows the ACTIVE strap id, not a hardcoded "my-whoop". A strap re-added
     // through the device manager banks its raw under its own fresh id, so a pinned "my-whoop" read left
@@ -169,6 +169,7 @@ fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
     ScreenScaffold(
         title = "Deep Timeline",
         subtitle = "Every second of your day. Drag back up to 3 days.",
+        trailing = { StrapSyncIcon(vm = vm, onOpenDevices = onOpenDevices) },
     ) {
         // METRIC PILLS — horizontally scrollable so all six fit on a phone.
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {

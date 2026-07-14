@@ -1062,6 +1062,7 @@ struct TodayView: View {
 
             // Uniform 36pt circular icon set: recording-status light, updates bell, quick-add (+), menu.
             HStack(spacing: 8) {
+                StrapSyncButton(size: 36)
                 // Recording status, a colour-coded light (green recording / amber synced / red not
                 // recording), replacing the old full-width banner. Taps to Devices to connect. Its OWN
                 // subview observes LiveState so a ~1 Hz HR tick re-renders just this 36pt dot, not all of
