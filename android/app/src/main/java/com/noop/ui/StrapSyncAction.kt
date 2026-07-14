@@ -11,5 +11,8 @@ enum class StrapSyncAction {
             !bonded -> Pairing
             else -> Ready
         }
+
+        fun shouldFlashComplete(wasBackfilling: Boolean, backfilling: Boolean, lastSyncError: String?): Boolean =
+            wasBackfilling && !backfilling && lastSyncError == null
     }
 }

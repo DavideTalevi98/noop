@@ -21,4 +21,14 @@ final class StrapSyncActionTests: XCTestCase {
     func testReadyWhenConnectedBondedIdle() {
         XCTAssertEqual(StrapSyncAction.resolve(connected: true, bonded: true, backfilling: false), .ready)
     }
+
+    func testFlashCompleteWhenOffloadEndsCleanly() {
+        XCTAssertTrue(StrapSyncAction.shouldFlashComplete(wasBackfilling: true, backfilling: false, lastSyncError: nil))
+    }
+
+    func testNoFlashWhenStillBackfillingOrErrored() {
+        XCTAssertFalse(StrapSyncAction.shouldFlashComplete(wasBackfilling: true, backfilling: true, lastSyncError: nil))
+        XCTAssertFalse(StrapSyncAction.shouldFlashComplete(wasBackfilling: true, backfilling: false, lastSyncError: "timeout"))
+        XCTAssertFalse(StrapSyncAction.shouldFlashComplete(wasBackfilling: false, backfilling: false, lastSyncError: nil))
+    }
 }
