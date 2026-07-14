@@ -149,9 +149,11 @@ enum FolderBackup {
     /// NOOP's OWN Documents/Backups folder — already exposed in Files (UIFileSharingEnabled +
     /// LSSupportsOpeningDocumentsInPlace) under "On My iPhone → NOOP" — so Backup & Sync works with zero
     /// dependence on the picker. No security-scoped bookmark is involved (the folder is inside our own
-    /// sandbox), so `resolveFolder`/`saveFolder`'s scoped-access brackets simply no-op for it. The user
-    /// can drag that folder into iCloud Drive to read backups on the Mac; a first-class iCloud container
-    /// is a separate, larger change. An explicit external pick (`saveFolder`) turns this back off.
+    /// sandbox), so `resolveFolder`/`saveFolder`'s scoped-access brackets simply no-op for it.
+    ///
+    /// **Does NOT survive app delete/reinstall** — the sandbox goes with the app. Prefer an external
+    /// folder (iCloud Drive) for real protection; this is only a picker workaround. An explicit
+    /// external pick (`saveFolder`) turns this back off.
     static var useInternalFolder: Bool {
         get { UserDefaults.standard.bool(forKey: internalKey) }
         set { UserDefaults.standard.set(newValue, forKey: internalKey) }

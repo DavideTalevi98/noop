@@ -2,6 +2,7 @@ package com.noop.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,14 +44,17 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +77,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.ble.WhoopModel
+import com.noop.data.BackupRestart
+import com.noop.data.DataBackup
 import com.noop.data.ImportSummary
 import com.noop.ingest.AppleHealthImporter
 import com.noop.ingest.HealthConnectImporter
@@ -762,6 +768,8 @@ private fun ImportStep(viewModel: AppViewModel) {
     // so a persisted busy=true would strand the buttons disabled with nothing running.
     var busy by remember { mutableStateOf(false) }
     var status by rememberSaveable { mutableStateOf<String?>(null) }
+    var confirmRestore by remember { mutableStateOf(false) }
+    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
 
     fun runImport(block: suspend () -> ImportSummary) {
         busy = true
@@ -779,6 +787,26 @@ private fun ImportStep(viewModel: AppViewModel) {
         }
     }
 
+    fun runBackupRestore(uri: Uri) {
+        busy = true
+        status = "Restoring…"
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { DataBackup.importFrom(context, uri) }
+            when (r) {
+                is DataBackup.ImportResult.NeedsRestart -> {
+                    // Skip the first-run wizard on relaunch (same key as Apple `noop.onboarded`).
+                    NoopPrefs.of(context).edit().putBoolean(NoopPrefs.KEY_ONBOARDED, true).apply()
+                    BackupRestart.afterRestoreToastAndExit(context)
+                }
+                is DataBackup.ImportResult.Failed -> {
+                    busy = false
+                    status = r.message
+                    Toast.makeText(context, r.message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     val whoopImportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> if (uri != null) runImport { WhoopCsvImporter.importZip(context, uri, viewModel.repo) } }
@@ -786,6 +814,15 @@ private fun ImportStep(viewModel: AppViewModel) {
     val appleImportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> if (uri != null) runImport { AppleHealthImporter.importExport(context, uri, viewModel.repo) } }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            pendingRestoreUri = uri
+            confirmRestore = true
+        }
+    }
 
     val hcPermissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
@@ -816,9 +853,37 @@ private fun ImportStep(viewModel: AppViewModel) {
         }
     }
 
+    if (confirmRestore) {
+        AlertDialog(
+            onDismissRequest = {
+                confirmRestore = false
+                pendingRestoreUri = null
+            },
+            title = { Text("Restore NOOP backup?") },
+            text = {
+                Text("This replaces any data already on this install, then NOOP relaunches.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRestore = false
+                        pendingRestoreUri?.let { runBackupRestore(it) }
+                        pendingRestoreUri = null
+                    },
+                ) { Text("Restore and relaunch") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    confirmRestore = false
+                    pendingRestoreUri = null
+                }) { Text("Cancel") }
+            },
+        )
+    }
+
     StepShell(
         title = "Bring your history",
-        subtitle = "Optional: import now, or skip and return to Data Sources later.",
+        subtitle = "Optional: restore a NOOP backup, import an export, or skip and do it later.",
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -830,11 +895,24 @@ private fun ImportStep(viewModel: AppViewModel) {
                 icon = Icons.Filled.AutoGraph,
                 tint = Palette.accent,
                 title = "History fills the dashboard immediately",
-                message = "A WHOOP export backfills recovery, strain, sleep and workouts. Health Connect can add steps, HR, HRV, sleep and weight from Android sources.",
+                message = "A full NOOP backup restores everything (strap history + settings). WHOOP / Health exports are a partial backfill if you have no .noopbak.",
             )
 
             NoopCard(padding = 16.dp) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OnboardingActionButton(
+                        label = if (busy) "Working…" else "Restore NOOP backup…",
+                        icon = Icons.Filled.Restore,
+                        enabled = !busy,
+                    ) {
+                        restoreLauncher.launch(
+                            arrayOf(
+                                "application/octet-stream",
+                                "application/zip",
+                                "application/x-sqlite3",
+                            ),
+                        )
+                    }
                     OnboardingActionButton(
                         label = "Import WHOOP export (.zip)",
                         icon = Icons.Filled.FileUpload,

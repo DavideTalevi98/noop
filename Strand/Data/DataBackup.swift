@@ -42,6 +42,30 @@ enum DataBackup {
         case failure(String)
     }
 
+    /// Install-local key for the first-run wizard (`ContentView` / `iOSRootView`). Not in
+    /// `BackupSettings.whitelist` (device/install-specific), so a restore must set it explicitly
+    /// before relaunch or the wizard reappears on top of a full database.
+    static let onboardedDefaultsKey = "noop.onboarded"
+
+    /// Mark the wizard complete so a post-restore relaunch opens the real app, not onboarding again.
+    static func prepareRelaunchAfterRestore(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: onboardedDefaultsKey)
+    }
+
+    /// #57: DB file is swapped; long-lived store handles still point at the old connection.
+    /// Quit after a short delay so the user can read the "restored" alert (parity with Android
+    /// `BackupRestart`). Call only after a successful `.imported` result.
+    @MainActor
+    static func scheduleRelaunchAfterRestore(delay: TimeInterval = 1.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            #if os(macOS)
+            NSApplication.shared.terminate(nil)
+            #else
+            exit(0)
+            #endif
+        }
+    }
+
     // MARK: - Export
 
     /// Checkpoint the store and write the live database as a compressed `.noopbak` (single-entry

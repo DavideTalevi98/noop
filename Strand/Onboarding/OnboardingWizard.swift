@@ -17,7 +17,7 @@ import WhoopStore
 //  5 Scan              — radar sweep; auto-scans, Scan retries via model.scan()
 //  6 Bonding           — celebration when live.bonded (a RecoveryRing blooms in)
 //  7 Profile           — age / sex / weight / height bound to ProfileStore
-//  8 Import (optional)  — WHOOP / Apple Health import from the wizard
+//  8 Import (optional)  — restore .noopbak / WHOOP / Apple Health from the wizard
 //  9 Done              — "Your thread starts here." → onFinished()
 //
 // Presentation is wired centrally; this view only calls onFinished() when complete.
@@ -788,10 +788,13 @@ private struct ImportStep: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingImporter = false
     @State private var importTarget: ImportTarget = .whoop
+    @State private var restoreBusy = false
+    @State private var restoreMessage: String?
+    @State private var confirmRestore = false
 
     var body: some View {
         StepShell(title: String(localized: "Bring your history"),
-                  subtitle: String(localized: "Optional: import now, or continue and return to Data Sources later.")) {
+                  subtitle: String(localized: "Optional: restore a NOOP backup, import an export, or continue and do it later.")) {
             VStack(spacing: 18) {
                 ZStack {
                     Circle()
@@ -806,22 +809,29 @@ private struct ImportStep: View {
                     icon: "clock.arrow.circlepath",
                     tint: StrandPalette.accent,
                     title: String(localized: "History fills the dashboard immediately"),
-                    message: String(localized: "A WHOOP export backfills recovery, strain, sleep and workouts. Apple Health can add HR, HRV, sleep, SpO₂, steps, workouts and weight.")
+                    message: String(localized: "A full NOOP backup restores everything (strap history + settings). WHOOP / Apple Health exports are a partial backfill if you have no .noopbak.")
                 )
 
                 StrandCard {
                     VStack(spacing: 10) {
                         ImportActionButton(
+                            title: restoreBusy ? String(localized: "Restoring…") : String(localized: "Restore NOOP backup…"),
+                            systemImage: "arrow.counterclockwise.circle",
+                            disabled: model.hasActiveImport || restoreBusy
+                        ) {
+                            confirmRestore = true
+                        }
+                        ImportActionButton(
                             title: model.isImporting(.whoop) ? String(localized: "Importing…") : String(localized: "Import WHOOP export"),
                             systemImage: "tray.and.arrow.down",
-                            disabled: model.hasActiveImport
+                            disabled: model.hasActiveImport || restoreBusy
                         ) {
                             presentImporter(.whoop)
                         }
                         ImportActionButton(
                             title: model.isImporting(.appleHealth) ? String(localized: "Working…") : String(localized: "Import Apple Health export"),
                             systemImage: "heart.fill",
-                            disabled: model.hasActiveImport
+                            disabled: model.hasActiveImport || restoreBusy
                         ) {
                             presentImporter(.appleHealth)
                         }
@@ -829,7 +839,7 @@ private struct ImportStep: View {
                 }
                 .frame(maxWidth: 480)
 
-                if model.hasActiveImport {
+                if model.hasActiveImport || restoreBusy {
                     ProgressView()
                         .controlSize(.small)
                         .tint(StrandPalette.accent)
@@ -844,6 +854,13 @@ private struct ImportStep: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 460)
                 }
+                if let restoreMessage {
+                    Text(restoreMessage)
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.statusWarning)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 460)
+                }
             }
         }
         .fileImporter(
@@ -852,6 +869,12 @@ private struct ImportStep: View {
             allowsMultipleSelection: false
         ) { result in
             handleImportResult(result, for: importTarget)
+        }
+        .alert("Restore NOOP backup?", isPresented: $confirmRestore) {
+            Button("Restore and relaunch", role: .destructive) { runBackupRestore() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Pick a .noopbak from iCloud Drive or Files. This replaces any data already on this install, then NOOP relaunches.")
         }
     }
 
@@ -883,6 +906,29 @@ private struct ImportStep: View {
             model.importWhoop(url: url)
         case .appleHealth:
             model.importAppleHealth(url: url)
+        }
+    }
+
+    private func runBackupRestore() {
+        restoreBusy = true
+        restoreMessage = nil
+        Task {
+            let result = await DataBackup.runImport()
+            await MainActor.run {
+                restoreBusy = false
+                switch result {
+                case .cancelled:
+                    break
+                case .imported:
+                    DataBackup.prepareRelaunchAfterRestore()
+                    restoreMessage = String(localized: "Restored — relaunching…")
+                    DataBackup.scheduleRelaunchAfterRestore()
+                case .failure(let message):
+                    restoreMessage = message
+                case .exported:
+                    restoreMessage = String(localized: "Couldn't restore that backup.")
+                }
+            }
         }
     }
 

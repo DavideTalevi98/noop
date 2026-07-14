@@ -29,7 +29,7 @@ struct BackupSyncView: View {
     var body: some View {
         ScreenScaffold(
             title: "Backup & Sync",
-            subtitle: "Save a full backup to a folder you choose - point it at Google Drive, iCloud or Dropbox for off-device sync."
+            subtitle: "Save full backups outside the app so they survive delete, reinstall, or a new phone."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 folderCard
@@ -69,10 +69,10 @@ struct BackupSyncView: View {
                 Text("Backup folder")
                     .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                 Text(folderLabel.map { String(localized: "Saving to: \($0)") }
-                     ?? String(localized: "No folder chosen yet. Pick one your cloud app already syncs, or any local folder."))
+                     ?? String(localized: "No folder chosen yet. Prefer iCloud Drive (survives delete + a new phone)."))
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Tip: choose a folder in iCloud Drive and your backups sync to all your Apple devices automatically, no account setup needed.")
+                Text("Recommended: choose a folder in iCloud Drive. Backups leave NOOP's sandbox, sync across your Apple devices, and stay after you delete or reinstall the app. After reinstall, pick that folder again (or a .noopbak file) and Restore.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
                     .fixedSize(horizontal: false, vertical: true)
                 NoopButton(folderLabel == nil ? "Choose folder" : "Change folder",
@@ -81,10 +81,15 @@ struct BackupSyncView: View {
                 #if os(iOS)
                 // #52: some iOS 26 users can't select a folder in the system picker (its "Open" button
                 // never fires). This backs up inside NOOP's own Files-visible folder instead — no picker.
+                // Warning: that path dies with the app — only a picker workaround, not a safety net.
                 if !FolderBackup.useInternalFolder {
-                    NoopButton("Use NOOP's own folder (browse in Files)",
+                    NoopButton("Use NOOP's own folder (does NOT survive delete)",
                                systemImage: "iphone", kind: .tertiary) { useNoopFolder() }
                         .disabled(busy)
+                } else {
+                    Text("Warning: backups are inside NOOP right now. Deleting the app deletes them. Change folder to iCloud Drive when you can.")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.statusWarning)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 #endif
             }
@@ -178,12 +183,12 @@ struct BackupSyncView: View {
 
     #if os(iOS)
     // #52: picker-free fallback. Back up inside NOOP's own Files-visible folder (On My iPhone → NOOP →
-    // Backups). No folder picker, no security-scoped bookmark — works even where the picker won't select.
+    // Backups). Convenient when the system picker is broken — but those files die with the app.
     private func useNoopFolder() {
         FolderBackup.useNoopFolder()
         folderLabel = FolderBackup.folderLabel()
-        alertTitle = String(localized: "Using NOOP's folder")
-        alertMessage = String(localized: "Backups will be saved inside NOOP. Open the Files app → On My iPhone → NOOP → Backups to see them, or drag that folder into iCloud Drive to read it on your Mac. To use a different folder later, tap Change folder.")
+        alertTitle = String(localized: "Using NOOP's folder (temporary)")
+        alertMessage = String(localized: "Backups are inside the app (Files → On My iPhone → NOOP → Backups). Deleting or reinstalling NOOP deletes them. When the folder picker works, tap Change folder and pick iCloud Drive instead.")
         showAlert = true
     }
     #endif
@@ -228,14 +233,18 @@ struct BackupSyncView: View {
                 busy = false
                 switch result {
                 case .imported:
+                    DataBackup.prepareRelaunchAfterRestore()
                     alertTitle = String(localized: "Restored")
-                    alertMessage = String(localized: "Fully quit and reopen NOOP to load it.")
+                    alertMessage = String(localized: "Your data has been restored. NOOP will quit so the restore can take effect — reopen the app.")
+                    showAlert = true
+                    DataBackup.scheduleRelaunchAfterRestore()
                 case .failure(let m):
                     alertTitle = String(localized: "Restore problem"); alertMessage = m
+                    showAlert = true
                 case .cancelled, .exported:
                     alertTitle = String(localized: "Restore problem"); alertMessage = String(localized: "Couldn't restore that backup.")
+                    showAlert = true
                 }
-                showAlert = true
             }
         }
     }
