@@ -197,6 +197,11 @@ final class AppModel: ObservableObject {
     private var readSpineCancellable: AnyCancellable?
     /// Daily re-arm timer for the single-instant firmware smart alarm (see scheduleDailySmartAlarmRearm).
     private var smartAlarmRearmTimer: Timer?
+    /// Wake-window light-phase watcher (iOS/macOS). Resets each time we enter a window.
+    private var wakeWatcher = SleepWindowWatcher()
+    private var wakeWindowActive = false
+    private var wakeWindowPreRampFired = false
+    private var wakeWindowEarlyFired = false
 
     init() {
         let live = LiveState()
@@ -526,6 +531,43 @@ final class AppModel: ObservableObject {
         if bpm != smoothed { bpm = smoothed }
         captureWorkoutSample()
         evaluateStress()
+        if let smoothed { evaluateWakeWindow(hr: smoothed) }
+    }
+
+    /// Soft pre-ramp + light-phase early buzz inside the wake window. Firmware alarm at the hard
+    /// deadline stays armed independently (safety floor). Needs live BLE HR; if the link is down the
+    /// deadline still fires on the strap + backup notification + Clock.
+    private func evaluateWakeWindow(hr: Int) {
+        guard behavior.smartAlarmEnabled, live.bonded else {
+            if wakeWindowActive { wakeWindowActive = false }
+            return
+        }
+        guard let deadline = Self.nextSmartAlarmDate(minutes: behavior.smartAlarmMinutes,
+                                                     weekdays: behavior.smartAlarmWeekdays) else { return }
+        let window = behavior.smartAlarmWindowMinutes
+        let now = Date()
+        let inWindow = WakeWindowTiming.contains(now, deadline: deadline, windowMinutes: window)
+        if inWindow && !wakeWindowActive {
+            wakeWatcher.reset()
+            wakeWindowPreRampFired = false
+            wakeWindowEarlyFired = false
+        }
+        wakeWindowActive = inWindow
+        guard inWindow else { return }
+
+        let preAt = WakeWindowTiming.preRampAt(deadline: deadline, windowMinutes: window)
+        if !wakeWindowPreRampFired, now >= preAt {
+            wakeWindowPreRampFired = true
+            buzz(loops: 1)
+            live.append(log: "Wake window: soft pre-buzz")
+        }
+
+        if !wakeWindowEarlyFired, wakeWatcher.shouldWake(bpm: hr) {
+            wakeWindowEarlyFired = true
+            buzz(loops: 2)
+            Self.postSmartAlarmEarly()
+            live.append(log: "Wake window: light-phase early buzz")
+        }
     }
 
     // MARK: - Manual workout tracking
@@ -1028,6 +1070,22 @@ final class AppModel: ObservableObject {
         #endif
     }
 
+    /// Early light-phase wake inside the window. Not gated on the wrist-alerts master — same posture
+    /// as the backup deadline notification (#34): a wake must not depend on an unrelated toggle.
+    static func postSmartAlarmEarly() {
+        #if os(iOS)
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized else { return }
+            let content = UNMutableNotificationContent()
+            content.title = String(localized: "Smart alarm")
+            content.body = String(localized: "Lighter sleep — gentle wake. Hard buzz still armed at your wake-by time.")
+            content.sound = .default
+            center.add(UNNotificationRequest(identifier: "smart-alarm-wake-early", content: content, trigger: nil))
+        }
+        #endif
+    }
+
     #if os(iOS)
     /// Shared post path: gate on the wrist-alerts master, then deliver only if the OS already authorized
     /// notifications (no second system prompt , BatteryNotifier-style status-only check). A fresh
@@ -1146,12 +1204,9 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Arm (or clear) the strap's firmware alarm from the smart-alarm settings. The firmware alarm
-    /// fires even if the Mac is asleep / NOOP is closed. No-op until bonded (send is gated on bond).
-    ///
-    /// On iOS this ALSO (dis)arms the best-effort backup wake notification (#4 + #6): a repeating daily
-    /// `UNCalendarNotificationTrigger` that survives suspend/relaunch, so a missed strap buzz still gets
-    /// an OS-level wake. macOS keeps just the firmware alarm (the static helpers are no-ops there).
+    /// Arm (or clear) the strap's firmware alarm at the hard "wake by" deadline. Soft pre-ramp and
+    /// light-phase early buzz run live in `evaluateWakeWindow` when BLE HR is available; they never
+    /// cancel this deadline. On iOS also (dis)arms the best-effort backup wake notification.
     func applySmartAlarm() {
         guard behavior.smartAlarmEnabled else {
             ble.disableStrapAlarm()

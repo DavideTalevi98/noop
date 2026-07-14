@@ -36,10 +36,15 @@ final class BehaviorStore: ObservableObject {
     @Published var stressQuietHours: Bool { didSet { d.set(stressQuietHours, forKey: K.stressQuietHours) } }
     @Published var stressUseResonancePace: Bool { didSet { d.set(stressUseResonancePace, forKey: K.stressUseResonance) } }
 
-    // MARK: Smart alarm
+    // MARK: Smart alarm / wake window
     @Published var smartAlarmEnabled: Bool { didSet { d.set(smartAlarmEnabled, forKey: K.alarmOn) } }
-    /// Target wake time, minutes since local midnight.
+    /// Hard "wake by" time, minutes since local midnight — strap firmware + backup notification fire here.
     @Published var smartAlarmMinutes: Int { didSet { d.set(smartAlarmMinutes, forKey: K.alarmTime) } }
+    /// How many minutes BEFORE [smartAlarmMinutes] the soft pre-ramp / light-phase early buzz may fire.
+    /// Clamped 5…60; default 30. Preserves existing "wake at" as the hard deadline for upgrades.
+    @Published var smartAlarmWindowMinutes: Int {
+        didSet { d.set(WakeWindowTiming.clampWindow(smartAlarmWindowMinutes), forKey: K.alarmWindow) }
+    }
     /// Weekdays the alarm fires on (Calendar weekday numbers: 1 = Sun … 7 = Sat). An empty set means
     /// "every day" — the backward-compatible default for anyone upgrading from before per-day scheduling.
     @Published var smartAlarmWeekdays: Set<Int> { didSet { d.set(Array(smartAlarmWeekdays).sorted(), forKey: K.alarmWeekdays) } }
@@ -71,9 +76,9 @@ final class BehaviorStore: ObservableObject {
         static let alarmOn = "behavior.smartAlarmEnabled"
         static let alarmTime = "behavior.smartAlarmMinutes"
         static let alarmWeekdays = "behavior.smartAlarmWeekdays"
-        // "behavior.smartAlarmWindow" retired: it was stored but never read (no wake-window
-        // watcher ever shipped). The defaults key is left orphaned on purpose — harmless, and
-        // preserved should a real light-sleep watcher ever land.
+        /// Wake-window length (minutes before the hard deadline). Same key as the pre-#207 orphan so
+        /// any old value is reused; newly clamped via `WakeWindowTiming`.
+        static let alarmWindow = "behavior.smartAlarmWindow"
         static let illness = "behavior.illnessWatch"
         static let batteryAlerts = "behavior.batteryAlerts"
         static let batteryPredictiveAlerts = "behavior.batteryPredictiveAlerts"
@@ -93,6 +98,8 @@ final class BehaviorStore: ObservableObject {
         stressUseResonancePace = d.object(forKey: K.stressUseResonance) as? Bool ?? true
         smartAlarmEnabled = d.object(forKey: K.alarmOn) as? Bool ?? false
         smartAlarmMinutes = d.object(forKey: K.alarmTime) as? Int ?? 7 * 60       // 07:00
+        let rawWindow = d.object(forKey: K.alarmWindow) as? Int ?? WakeWindowTiming.defaultWindow
+        smartAlarmWindowMinutes = WakeWindowTiming.clampWindow(rawWindow == 0 ? WakeWindowTiming.defaultWindow : rawWindow)
         // Stored as a plain [Int]; only valid weekday numbers (1…7) are kept so a corrupted defaults
         // entry can never schedule against a bogus day. Empty (or all 7) = every day.
         smartAlarmWeekdays = Set((d.array(forKey: K.alarmWeekdays) as? [Int] ?? []).filter { (1...7).contains($0) })

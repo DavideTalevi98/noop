@@ -6,8 +6,9 @@ import XCTest
 final class DataBackupRelaunchTests: XCTestCase {
 
     func testPrepareRelaunchMarksOnboarded() {
-        let defaults = UserDefaults(suiteName: "DataBackupRelaunchTests.\(UUID().uuidString)")!
-        defer { defaults.removePersistentDomain(forName: defaults.suiteName!) }
+        let suite = "DataBackupRelaunchTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
         XCTAssertFalse(defaults.bool(forKey: DataBackup.onboardedDefaultsKey))
         DataBackup.prepareRelaunchAfterRestore(defaults: defaults)
         XCTAssertTrue(defaults.bool(forKey: DataBackup.onboardedDefaultsKey))

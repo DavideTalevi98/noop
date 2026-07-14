@@ -46,7 +46,7 @@ struct SmartAlarmView: View {
         // #766: retitled to "Alarms" because it now holds BOTH the strap's silent wake-alarm and the
         // evening wind-down reminder, so naming it "Wind-Down" undersold it. One surface, clearly labelled.
         ScreenScaffold(title: "Alarms",
-                       subtitle: "Your strap wake-alarm and the evening wind-down reminder, in one place.") {
+                       subtitle: "Wake window (soft → early → hard buzz) and the evening wind-down reminder.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 windowHero
                 strapAlarmCard
@@ -151,14 +151,14 @@ struct SmartAlarmView: View {
     private var honestyCard: some View {
         StrandCard(padding: 20) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "bell.slash")
+                Image(systemName: "bell.badge")
                     .foregroundStyle(StrandPalette.statusWarning)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("The strap alarm is a silent buzz, not a sound")
+                    Text("Set Clock to the same Wake by time")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("The wake-alarm above buzzes your wrist from the strap's own firmware. It can't sound a loud alarm. We also schedule a backup notification at your wake time, but a sideloaded app can't sound a guaranteed wake on this device (that needs a critical-alert permission this build doesn't have), so Focus or silent mode can still mute it. Keep your phone's built-in Clock alarm as your real backup. NOOP's phone-based smart wake (light-sleep detection) is available on the Android app.")
+                    Text("The strap buzz is silent. Soft/early buzzes need Bluetooth alive in the window. A sideloaded build can't fire a guaranteed loud phone alarm, so keep iOS Clock at your Wake by time as the real backup. Focus mode can still mute NOOP's notification.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -181,7 +181,7 @@ struct SmartAlarmView: View {
                         Image(systemName: "alarm.fill")
                             .foregroundStyle(StrandPalette.accent)
                             .accessibilityHidden(true)
-                        Text("Strap wake-alarm")
+                        Text("Wake window")
                             .font(StrandFont.title2)
                             .foregroundStyle(StrandPalette.textPrimary)
                     }
@@ -189,10 +189,10 @@ struct SmartAlarmView: View {
 
                 HStack(alignment: .center, spacing: 16) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Wake me with a strap buzz")
+                        Text("Smart morning wake")
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Arms the strap to buzz at your wake time, even if NOOP is closed. Sends the exact alarm command the official app sends, confirmed buzzing on a real WHOOP 4.0 (community wire capture + on-device test, #535). Keep a backup alarm for anything you truly can't miss.")
+                        Text("Soft pre-buzz, early buzz on lighter sleep (live HR), then a hard strap buzz at Wake by. Keep your iPhone Clock alarm at the same Wake by time — sideload can't guarantee a loud phone alarm.")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -200,20 +200,43 @@ struct SmartAlarmView: View {
                     Spacer()
                     Toggle("", isOn: $behavior.smartAlarmEnabled)
                         .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
-                        .accessibilityLabel("Wake me with a strap buzz")
+                        .accessibilityLabel("Smart morning wake")
                 }
                 .frame(minHeight: 42)
 
                 if behavior.smartAlarmEnabled {
                     Divider().overlay(StrandPalette.hairline)
                     HStack {
-                        Text("Wake at").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                        Text("Wake by").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
                         Spacer()
                         DatePicker("", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
                             .labelsHidden().datePickerStyle(.compact)
-                            .accessibilityLabel("Wake time")
+                            .accessibilityLabel("Wake by time")
                     }
                     .frame(minHeight: 42)
+                    Divider().overlay(StrandPalette.hairline)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Wake window")
+                                .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                            Text("May gently buzz up to this many minutes earlier on lighter sleep. Hard buzz stays at Wake by.")
+                                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+                        Picker("Wake window", selection: $behavior.smartAlarmWindowMinutes) {
+                            ForEach([5, 10, 15, 20, 30, 45, 60], id: \.self) { n in
+                                Text("\(n) min").tag(n)
+                            }
+                        }
+                        .labelsHidden().pickerStyle(.menu).tint(StrandPalette.accent)
+                        .accessibilityLabel("Wake window minutes")
+                    }
+                    .frame(minHeight: 42)
+                    Text("Soft pre-buzz ~\(min(15, behavior.smartAlarmWindowMinutes)) min before Wake by, early buzz if HR looks lighter, then strap firmware at Wake by.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Divider().overlay(StrandPalette.hairline)
                     alarmWeekdayPicker
                     // #864: a WHOOP 5/MG only arms its firmware alarm when Experimental is on (see
@@ -233,12 +256,12 @@ struct SmartAlarmView: View {
                         // 5/MG with Experimental ON: the strap IS armed (the rev-4 puffin payload), but a
                         // strap-driven wake has NEVER been captured on 5/MG - so the "confirmed on 4.0" copy
                         // must NOT show here (#864 honesty). Keep the 5/MG-unconfirmed caveat.
-                        Text("Armed on the strap itself with the experimental 5/MG command. A strap-driven wake is still unconfirmed on 5/MG on our side (confirmed only on WHOOP 4.0), so keep a backup alarm for anything you truly can't miss.")
+                        Text("Hard buzz armed on the strap at Wake by (experimental 5/MG command). Soft/early buzzes need the phone linked overnight. A strap-driven wake is still unconfirmed on 5/MG — keep Clock as backup.")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        Text("Armed on the strap itself, so it can buzz at your wake time even if your phone is asleep or NOOP is closed. Sends the exact alarm command the official app sends, confirmed buzzing on a real WHOOP 4.0 (community wire capture + on-device test, #535). Keep a backup alarm for anything you truly can't miss.")
+                        Text("Hard buzz armed on the strap at Wake by (works even if NOOP is closed). Soft pre-buzz and light-phase early buzz need a live Bluetooth link in the window. Confirmed buzzing on WHOOP 4.0 (#535).")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -248,6 +271,7 @@ struct SmartAlarmView: View {
             .onChangeCompat(of: behavior.smartAlarmEnabled) { _ in model.applySmartAlarm() }
             .onChangeCompat(of: behavior.smartAlarmMinutes) { _ in model.applySmartAlarm() }
             .onChangeCompat(of: behavior.smartAlarmWeekdays) { _ in model.applySmartAlarm() }
+            .onChangeCompat(of: behavior.smartAlarmWindowMinutes) { _ in model.applySmartAlarm() }
         }
     }
 

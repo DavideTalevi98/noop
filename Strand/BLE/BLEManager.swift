@@ -2525,8 +2525,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// its RTC (set during the connect handshake / history sync) and the official app's alarm
     /// path doesn't re-set it (wire observation; mirrors Android WhoopBleClient.armStrapAlarm).
     /// Either way the strap will buzz at `date` even if the app is backgrounded or force-quit
-    /// (event STRAP_DRIVEN_ALARM_EXECUTED=57). This is the only alarm path: the strap fires at
-    /// the fixed time — NOOP has no light-sleep early-wake layer.
+    /// (event STRAP_DRIVEN_ALARM_EXECUTED=57). This is the hard-deadline path of the wake window;
+    /// soft pre-ramp + light-phase early buzz (when live HR is available) live in `AppModel.evaluateWakeWindow`.
     ///
     /// EXPERIMENTAL / UNCONFIRMED on 5/MG (same posture as the Android client): the byte-identical
     /// Android rev-4 frame has been ACKed by a real 5/MG when arming, but a strap-driven wake fire
