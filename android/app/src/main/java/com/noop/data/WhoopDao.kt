@@ -83,6 +83,16 @@ interface WhoopDao : DeviceRegistryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPpgHr(rows: List<PpgHrSample>): List<Long>
 
+    /** Spot HRV from contiguous v26 PPG bursts. Idempotent by (deviceId, ts). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPpgSpotHrv(rows: List<PpgSpotHrvSample>): List<Long>
+
+    @Query(
+        "SELECT * FROM ppgSpotHrvSample WHERE deviceId = :deviceId AND ts >= :from AND ts <= :to " +
+            "ORDER BY ts LIMIT :limit",
+    )
+    suspend fun ppgSpotHrvSamples(deviceId: String, from: Long, to: Long, limit: Int): List<PpgSpotHrvSample>
+
     // MARK: - Server-derived caches (latest value wins)
 
     @Upsert

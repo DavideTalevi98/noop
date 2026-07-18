@@ -44,14 +44,15 @@ class WhoopDatabaseChainTest {
         WhoopDatabase.MIGRATION_15_16,
         WhoopDatabase.MIGRATION_16_17,
         WhoopDatabase.MIGRATION_17_18,
+        WhoopDatabase.MIGRATION_18_19,
     )
 
     @Test
-    fun dbVersion_pinnedTo18() {
+    fun dbVersion_pinnedTo19() {
         assertEquals(
             "DB_VERSION changed — bump this pin, add MIGRATION_X_Y + *MigrationTest, " +
                 "and update the @Database(version=…) annotation to match",
-            18,
+            19,
             WhoopDatabase.DB_VERSION,
         )
     }

@@ -6,7 +6,8 @@ import Foundation
 /// v18 per-second summary that carries HR. The v26 records are real cardiac signal, so this pure
 /// estimator recovers a per-second HR from them via windowed autocorrelation, keeping the biometric
 /// timeline continuous through the gaps. It is HR-only — PPG carries NO body motion, so this fills HR
-/// continuity, NOT actigraphy and NOT HRV (the contributor confirmed v26 gives no RMSSD).
+/// continuity, NOT actigraphy. Spot RMSSD from the same bursts lives in `PpgSpotHrv` (the strap does
+/// not bank an RMSSD field; we estimate it from peaks when a burst is long enough).
 ///
 /// Mirrors `tools/linux-capture/ppg_hr.py` (PR #162, Python side): 8 s autocorrelation window, a
 /// 30–220 bpm search band (lags 6…48 at 24 Hz), linear detrend, normalised peak as confidence, and a

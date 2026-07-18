@@ -31,6 +31,8 @@ data class StreamBatch(
     val sleepState: List<SleepStateRow> = emptyList(),
     /** HR derived from the WHOOP 5/MG v26 optical PPG waveform (autocorrelation). (#156) */
     val ppgHr: List<PpgHrRow> = emptyList(),
+    /** Spot HRV (RMSSD) from contiguous v26 PPG bursts (≥20 s). Empty on 4.0 / no bursts. */
+    val ppgSpotHrv: List<PpgSpotHrvRow> = emptyList(),
     /**
      * #547: how many historical records this batch DROPPED because their timestamp was implausible
      * (older than 2023-11 or more than a day ahead of now) , a bad strap clock/flash artefact. A
@@ -43,7 +45,7 @@ data class StreamBatch(
     val isEmpty: Boolean
         get() = hr.isEmpty() && rr.isEmpty() && events.isEmpty() && battery.isEmpty() &&
             spo2.isEmpty() && skinTemp.isEmpty() && resp.isEmpty() && gravity.isEmpty() &&
-            steps.isEmpty() && sleepState.isEmpty() && ppgHr.isEmpty()
+            steps.isEmpty() && sleepState.isEmpty() && ppgHr.isEmpty() && ppgSpotHrv.isEmpty()
 }
 
 // Device-agnostic decoded rows (deviceId attached when inserted). Mirror Streams.swift shapes.
@@ -96,6 +98,13 @@ data class RespRow(val ts: Long, val raw: Int)
 data class GravityRow(val ts: Long, val x: Double, val y: Double, val z: Double)
 /** HR derived from the v26 PPG waveform: [ts] window-centre sec, [bpm], [conf] in 0…1. (#156) */
 data class PpgHrRow(val ts: Long, val bpm: Int, val conf: Double)
+data class PpgSpotHrvRow(
+    val ts: Long,
+    val rmssdMs: Double,
+    val hrBpm: Double,
+    val beats: Int,
+    val quality: String,
+)
 
 /** Count of rows ACTUALLY inserted per stream (mirrors WhoopStore.insert return tuple). */
 data class InsertCounts(
@@ -226,6 +235,11 @@ class WhoopRepository(private val dao: WhoopDao) {
         // backfill "persisted N" summary reflects HR recovered from the optical waveform too.
         val ppgHrIds = if (streams.ppgHr.isEmpty()) emptyList() else
             dao.insertPpgHr(streams.ppgHr.map { PpgHrSample(deviceId, it.ts, it.bpm, it.conf) })
+        if (streams.ppgSpotHrv.isNotEmpty()) {
+            dao.insertPpgSpotHrv(streams.ppgSpotHrv.map {
+                PpgSpotHrvSample(deviceId, it.ts, it.rmssdMs, it.hrBpm, it.beats, it.quality)
+            })
+        }
 
         // OnConflictStrategy.IGNORE returns -1 for skipped (already-present) rows; count the inserts.
         return InsertCounts(
@@ -539,6 +553,9 @@ class WhoopRepository(private val dao: WhoopDao) {
     /** v26 PPG-derived HR samples (own stream) for the raw-sensor diagnostic export. (#156) */
     suspend fun ppgHrSamples(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT) =
         dao.ppgHrSamples(deviceId, from, to, limit)
+
+    suspend fun ppgSpotHrvSamples(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT) =
+        dao.ppgSpotHrvSamples(deviceId, from, to, limit)
 
     /** Downsampled HR (mean bpm per [bucketSeconds]) for the strap, for the Today 24h trend chart. */
     suspend fun hrBuckets(deviceId: String, from: Long, to: Long, bucketSeconds: Long = 300L) =

@@ -237,6 +237,9 @@ object AnalyticsEngine {
         // the whole-night mean. Display-only preference threaded from the caller (UnitPrefs.hrvWindow). The
         // default (false) is byte-identical to the historical whole-night value.
         deepHrvWindow: Boolean = false,
+        // Spot HRV from v26 PPG bursts (WHOOP 5/MG). When any GOOD-quality window exists, its median
+        // RMSSD is preferred over the packed R-R overnight mean. Default empty = byte-identical for 4.0.
+        ppgSpotHrv: List<com.noop.protocol.PpgSpotHrv.Sample> = emptyList(),
     ): DayResult {
 
         // ── Sleep detection + staging ─────────────────────────────────────────
@@ -320,30 +323,32 @@ object AnalyticsEngine {
         // Daily resting HR = lowest per-session resting HR across matched sessions.
         val restingHRDaily: Int? = matched.mapNotNull { it.restingHR }.minOrNull()
         // Daily avg HRV = in-bed-weighted mean of per-session avg HRV.
-        val avgHRVDaily: Double? = if (deepHrvWindow) {
-            // #141: WHOOP-style HRV — pool RMSSD over DEEP-stage 5-min windows only (slow-wave sleep),
-            // instead of the whole-night mean below. Reuses the SAME sessionHrvWindows the HRV trace is
-            // built from, so the displayed value equals the `deepOnly` figure the trace logs. rr is sorted
-            // (RMSSD = successive diffs). null when the night has no detected deep sleep (WHOOP-4.0 staging
-            // can be sparse) — the caller then shows calibrating, never a fabricated number.
-            val rrSorted = rr.sortedBy { it.ts }
-            val deep = matched.flatMap { s ->
-                SleepStager.sessionHrvWindows(s.start, s.end, rrSorted, s.stages)
-                    .filter { it.stage == "deep" }.mapNotNull { it.rmssd }
+        // WHOOP 5/MG: prefer median GOOD PPG-spot RMSSD when present (packed R-R underestimates).
+        val avgHRVDaily: Double? = com.noop.protocol.PpgSpotHrv.medianGoodRmssd(ppgSpotHrv)
+            ?: if (deepHrvWindow) {
+                // #141: WHOOP-style HRV — pool RMSSD over DEEP-stage 5-min windows only (slow-wave sleep),
+                // instead of the whole-night mean below. Reuses the SAME sessionHrvWindows the HRV trace is
+                // built from, so the displayed value equals the `deepOnly` figure the trace logs. rr is sorted
+                // (RMSSD = successive diffs). null when the night has no detected deep sleep (WHOOP-4.0 staging
+                // can be sparse) — the caller then shows calibrating, never a fabricated number.
+                val rrSorted = rr.sortedBy { it.ts }
+                val deep = matched.flatMap { s ->
+                    SleepStager.sessionHrvWindows(s.start, s.end, rrSorted, s.stages)
+                        .filter { it.stage == "deep" }.mapNotNull { it.rmssd }
+                }
+                if (deep.isEmpty()) null else deep.sum() / deep.size
+            } else run {
+                val pairs = matched.mapNotNull { s ->
+                    s.avgHRV?.let { it to (s.end - s.start).toDouble() }
+                }
+                if (pairs.isEmpty()) {
+                    null
+                } else {
+                    val total = pairs.sumOf { it.first * it.second }
+                    val weight = pairs.sumOf { it.second }
+                    if (weight > 0) total / weight else null
+                }
             }
-            if (deep.isEmpty()) null else deep.sum() / deep.size
-        } else run {
-            val pairs = matched.mapNotNull { s ->
-                s.avgHRV?.let { it to (s.end - s.start).toDouble() }
-            }
-            if (pairs.isEmpty()) {
-                null
-            } else {
-                val total = pairs.sumOf { it.first * it.second }
-                val weight = pairs.sumOf { it.second }
-                if (weight > 0) total / weight else null
-            }
-        }
 
         // ── HRV & Autonomic nightly trace (#141) ──────────────────────────────
         // Per-5-min-window RMSSD tagged by the sleep stage at its center, then a night summary comparing

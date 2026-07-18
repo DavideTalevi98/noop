@@ -170,6 +170,8 @@ struct ActiveWorkoutIndicatorSection: View {
 
 struct TodayView: View {
     @EnvironmentObject var repo: Repository
+    /// Persisted strap picker — drives SpO₂ honesty copy (5/MG never fills Blood O₂ over BLE).
+    @AppStorage("selectedWhoopModel") private var selectedWhoopModelRaw = WhoopModel.whoop4.rawValue
     // PERF (scroll stutter): TodayView deliberately does NOT observe `LiveState` directly. A connected
     // strap publishes `LiveState` ~1 Hz (heart rate + each R-R packet), and an `@EnvironmentObject live`
     // here would invalidate the ENTIRE Today `body` on every tick, re-evaluating the scene backdrop, the
@@ -3062,7 +3064,8 @@ struct TodayView: View {
         unit: String,
         today: Double?,
         prior: (DailyMetric) -> Double?,
-        format: (Double) -> String
+        format: (Double) -> String,
+        bloodOxygenUnavailableOverBle: Bool = false
     ) -> (value: String, caption: String?) {
         if let v = today { return (format(v), unit) }
         if let p = lastScoredRecoveryDay, let v = prior(p) {
@@ -3071,7 +3074,9 @@ struct TodayView: View {
         // H10, an empty vital on TODAY reads honestly ("After tonight's sleep") instead of a lone unit
         // beside a bare ", ", which looked like a fault; a navigated PAST day keeps the plain unit (it's
         // genuinely missing data the user can't act on now). Pure copy via `emptyVitalCaption`.
-        if let honest = Self.emptyVitalCaption(unit: unit, isToday: selectedDayOffset == 0) {
+        // SpO₂ on WHOOP 5/MG: overnight will never fill it over BLE — say so on every day.
+        if let honest = Self.emptyVitalCaption(unit: unit, isToday: selectedDayOffset == 0,
+                                               bloodOxygenUnavailableOverBle: bloodOxygenUnavailableOverBle) {
             return ("—", honest)
         }
         return ("—", unit)
@@ -3165,8 +3170,11 @@ struct TodayView: View {
                 sparkColor: StrandPalette.metricRose
             )
         case .bloodOxygen:
+            // WHOOP 5/MG: no calibrated SpO₂ % over BLE — don't promise "After tonight's sleep".
+            let spo2BleGap = selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue
             let spo2 = carriedVital(unit: "SpO₂", today: d?.spo2Pct,
-                                    prior: { $0.spo2Pct }, format: { String(format: "%.0f%%", $0) })
+                                    prior: { $0.spo2Pct }, format: { String(format: "%.0f%%", $0) },
+                                    bloodOxygenUnavailableOverBle: spo2BleGap)
             StatTile(
                 label: "Blood Oxygen",
                 value: spo2.value,
@@ -4131,7 +4139,15 @@ struct TodayView: View {
     /// "After tonight's sleep" tells the user WHEN the tile fills rather than leaving a bare ", " beside a lone
     /// unit that read as broken. Returns nil off-today (a past day keeps the plain unit, it's missing data the
     /// user can't act on now). Pure copy/gate so it can be unit-tested without a live view. Mirror in Kotlin.
-    static func emptyVitalCaption(unit: String, isToday: Bool) -> String? {
+    ///
+    /// `bloodOxygenUnavailableOverBle`: WHOOP 5/MG never ships a calibrated SpO₂ % over Bluetooth — sleep
+    /// will not fill this tile; only a WHOOP CSV import or Apple Health can. When true for SpO₂, the caption
+    /// says so instead of promising overnight fill.
+    static func emptyVitalCaption(unit: String, isToday: Bool,
+                                  bloodOxygenUnavailableOverBle: Bool = false) -> String? {
+        if bloodOxygenUnavailableOverBle, unit == "SpO₂" || unit == "SpO2" {
+            return String(localized: "Not on BLE — import CSV or Apple Health")
+        }
         guard isToday else { return nil }
         return String(localized: "After tonight's sleep")
     }

@@ -3672,6 +3672,12 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                         // A real-time double-tap / wrist gesture still fires during a 5/MG offload (which
                         // runs for minutes, #69); the ts≈now gate rejects replayed historical EVENTs.
                         router.dispatchLiveGestureIfFresh(frame: frame, now: strapClockNow)
+                        // Opt-in raw capture MUST still see offload frames (Android already does —
+                        // writeWhoop5BackfillCapture before routing). Without this, "Record puffin
+                        // frames" only banks COMMAND_RESPONSE acks and the Export raw+log zip is
+                        // useless for SpO₂ / protocol RE on history. No-op when the toggle is off;
+                        // PuffinFrameRecorder's 50 MB soft cap bounds growth.
+                        puffinRecorder.capture(frame: frame, char: characteristic.uuid)
                         continue
                     }
                     router.handle(frame: frame)

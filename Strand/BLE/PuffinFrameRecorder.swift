@@ -4,8 +4,9 @@ import WhoopProtocol
 
 /// App-side glue around the pure `PuffinCapture`: gates on a user toggle, stamps each frame with a
 /// wall-clock time and the live (standard-profile) heart rate, and persists the growing capture to a
-/// JSON file under Application Support. Read-only with respect to the strap — it only records frames
-/// that already arrived, it never writes to the device — so it is always safe to leave on.
+/// JSON file under Application Support. Records both live/command frames and historical offload
+/// frames (parity with Android's backfill capture). Read-only with respect to the strap — it only
+/// records frames that already arrived, it never writes to the device — so it is always safe to leave on.
 ///
 /// `@MainActor` because it reads `LiveState.heartRate` and updates published capture status; the
 /// BLEManager delegate callbacks that feed it are already on the main queue.
@@ -45,6 +46,28 @@ final class PuffinFrameRecorder {
             .appendingPathComponent("puffin-captures", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// Every on-disk `puffin-*.json` in the capture directory (newest last). Includes prior app-launch
+    /// sessions the Settings "this session" export used to hide — that gap left multi-MB offload
+    /// captures stranded on device while Export raw+log only shared the tiny current file.
+    static func allCaptureURLs() -> [URL] {
+        guard let dir = try? captureDirectory(),
+              let entries = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.fileSizeKey],
+                options: [.skipsHiddenFiles]) else { return [] }
+        return entries
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("puffin-") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// `(fileCount, totalBytes)` for the capture directory — for Settings copy ("N files · X MB").
+    static func diskInventory() -> (count: Int, bytes: Int) {
+        let urls = allCaptureURLs()
+        let bytes = urls.reduce(0) { sum, url in
+            sum + ((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
+        return (urls.count, bytes)
     }
 
     /// Record one puffin frame (off `fd4b0003/0004/0005/0007`). No-op unless capture is enabled.

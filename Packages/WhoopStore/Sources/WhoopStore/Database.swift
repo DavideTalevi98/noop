@@ -480,6 +480,21 @@ extension WhoopStore {
             try db.execute(sql: "DROP TABLE rrInterval")
             try db.execute(sql: "ALTER TABLE rrInterval_new RENAME TO rrInterval")
         }
+
+        // v25: spot HRV (RMSSD) from contiguous WHOOP 5/MG v26 PPG bursts. Sparse + 24 Hz-coarse;
+        // quality is GOOD/COARSE/POOR. Additive NEW table only (twin of Android MIGRATION_18_19).
+        // Already-offloaded history the strap has trimmed cannot be backfilled — forward-looking.
+        migrator.registerMigration("v25-ppg-spot-hrv") { db in
+            try db.create(table: "ppgSpotHrvSample") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("rmssdMs", .double).notNull()
+                t.column("hrBpm", .double).notNull()
+                t.column("beats", .integer).notNull()
+                t.column("quality", .text).notNull()
+                t.primaryKey(["deviceId", "ts"])
+            }
+        }
         return migrator
     }
 }

@@ -217,6 +217,9 @@ public struct Streams: Equatable, Codable {
     /// PPG-derived per-second HR from the WHOOP 5.0 v26 optical buffer (issue #156). Kept separate from
     /// `hr` (the measured stream) so consumers can COALESCE without conflating the two sources.
     public var ppgHr: [PpgHrSample]
+    /// Spot HRV (RMSSD) from each contiguous v26 PPG burst (≥20 s). Sparse + 24 Hz-coarse; quality
+    /// tagged GOOD/COARSE/POOR. Used when the packed R-R overnight HRV underestimates on 5/MG.
+    public var ppgSpotHrv: [PpgSpotHrvSample]
     public var events: [WhoopEvent]
     public var battery: [BatterySample]
     /// #547 diagnostic: how many historical records `extractHistoricalStreams` DROPPED this chunk for an
@@ -229,10 +232,12 @@ public struct Streams: Equatable, Codable {
                 resp: [RespSample] = [], gravity: [GravitySample] = [],
                 steps: [StepSample] = [], sleepState: [SleepStateSample] = [],
                 ppgHr: [PpgHrSample] = [],
+                ppgSpotHrv: [PpgSpotHrvSample] = [],
                 events: [WhoopEvent] = [], battery: [BatterySample] = []) {
         self.hr = hr; self.rr = rr
         self.spo2 = spo2; self.skinTemp = skinTemp; self.resp = resp; self.gravity = gravity
         self.steps = steps; self.sleepState = sleepState; self.ppgHr = ppgHr
+        self.ppgSpotHrv = ppgSpotHrv
         self.events = events; self.battery = battery
     }
 
@@ -242,6 +247,7 @@ public struct Streams: Equatable, Codable {
     public var isEmpty: Bool {
         hr.isEmpty && rr.isEmpty && spo2.isEmpty && skinTemp.isEmpty && resp.isEmpty
             && gravity.isEmpty && steps.isEmpty && sleepState.isEmpty && ppgHr.isEmpty
+            && ppgSpotHrv.isEmpty
             && events.isEmpty && battery.isEmpty
     }
 
@@ -249,6 +255,7 @@ public struct Streams: Equatable, Codable {
         case hr, rr, spo2, skinTemp = "skin_temp", resp, gravity, steps
         case sleepState = "sleep_state"
         case ppgHr = "ppg_hr"
+        case ppgSpotHrv = "ppg_spot_hrv"
         case events, battery
     }
 
@@ -265,6 +272,7 @@ public struct Streams: Equatable, Codable {
         steps = try c.decodeIfPresent([StepSample].self, forKey: .steps) ?? []
         sleepState = try c.decodeIfPresent([SleepStateSample].self, forKey: .sleepState) ?? []
         ppgHr = try c.decodeIfPresent([PpgHrSample].self, forKey: .ppgHr) ?? []
+        ppgSpotHrv = try c.decodeIfPresent([PpgSpotHrvSample].self, forKey: .ppgSpotHrv) ?? []
         events = try c.decodeIfPresent([WhoopEvent].self, forKey: .events) ?? []
         battery = try c.decodeIfPresent([BatterySample].self, forKey: .battery) ?? []
     }

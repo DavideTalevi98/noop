@@ -457,6 +457,10 @@ object IntelligenceEngine {
             // #93: WHOOP 4.0 raw SpO2 PPG samples for the night; analyzeDay banks the nightly red/IR ADC
             // means on the DailyMetric. Empty on a 5/MG (no v24 spo2 channels) → the raw means stay null.
             val spo2 = repo.spo2Samples(owner, from, to, STREAM_LIMIT)
+            // Spot HRV from v26 PPG bursts (5/MG). Empty on 4.0 → analyzeDay keeps the RR path.
+            val ppgSpotHrv = repo.ppgSpotHrvSamples(owner, from, to, STREAM_LIMIT).map {
+                com.noop.protocol.PpgSpotHrv.Sample(it.ts, it.rmssdMs, it.hrBpm, it.beats, it.quality)
+            }
             // #938: the strap family that WROTE this owner's skin-temp rows, so analyzeDay converts the raw
             // register on the right scale (5/MG banks centidegrees, a WHOOP 4.0 v24 banks a raw ADC). The
             // owner source resolves it from the registry; unknown/non-WHOOP owners fall back to WHOOP5 (the
@@ -560,6 +564,7 @@ object IntelligenceEngine {
                 // so the 5000-line ring buffer isn't flooded; every night still emits the 1-line summary.
                 hrvWindowDetail = dayStart == nowLocalMidnight,
                 deepHrvWindow = deepHrvWindow,
+                ppgSpotHrv = ppgSpotHrv,
             )
 
             // #195: whole-night HRV cleaning-pipeline summary to the always-on strap log, so a "reads ~2x too

@@ -5750,7 +5750,15 @@ internal fun restStageLowConfidence(d: DailyMetric?): Boolean {
  * today-only rule the Charge tile uses. Each call site only reaches here when the value is genuinely
  * absent, so the hint never overwrites a real reading. No em-dashes (house style). Pure + unit-tested.
  */
-internal fun buildingHint(metric: KeyMetric, isToday: Boolean): String? {
+internal fun buildingHint(
+    metric: KeyMetric,
+    isToday: Boolean,
+    bloodOxygenUnavailableOverBle: Boolean = false,
+): String? {
+    // WHOOP 5/MG: SpO₂ % is never filled by overnight BLE — say so on every day, not only today.
+    if (metric == KeyMetric.BLOOD_OXYGEN && bloodOxygenUnavailableOverBle) {
+        return "Not on BLE — import CSV or Apple Health"
+    }
     if (!isToday) return null
     return when (metric) {
         KeyMetric.REST -> "Building, wear it tonight"

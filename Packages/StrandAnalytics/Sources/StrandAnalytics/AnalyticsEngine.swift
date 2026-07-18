@@ -348,7 +348,12 @@ public enum AnalyticsEngine {
                                   // #141: when true, the nightly HRV is RMSSD over DEEP-sleep windows only
                                   // (WHOOP-style), instead of the whole-night mean. Threaded from the caller
                                   // (UnitPrefs.hrvWindowKey). Default false = byte-identical whole-night value.
-                                  deepHrvWindow: Bool = false) -> DayResult {
+                                  deepHrvWindow: Bool = false,
+                                  // Spot HRV from v26 PPG bursts (WHOOP 5/MG). When any GOOD-quality window
+                                  // exists, its median RMSSD is preferred over the packed R-R overnight mean
+                                  // (which saturates/underestimates on 5/MG). Default empty = byte-identical
+                                  // for WHOOP 4.0 and pure-function callers/tests.
+                                  ppgSpotHrv: [PpgSpotHrvSample] = []) -> DayResult {
 
         // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
         // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
@@ -469,7 +474,12 @@ public enum AnalyticsEngine {
         // Daily resting HR = lowest per-session resting HR across matched sessions.
         let restingHRDaily = matched.compactMap { $0.restingHR }.min()
         // Daily avg HRV = in-bed-weighted mean of per-session avg HRV.
+        // WHOOP 5/MG: when GOOD-quality PPG spot windows exist (v26 optical bursts), prefer their
+        // median RMSSD — the packed R-R overnight path underestimates/saturates on that family.
         let avgHRVDaily: Double? = {
+            if let ppgMed = PpgSpotHrv.medianGoodRmssd(ppgSpotHrv) {
+                return ppgMed
+            }
             if deepHrvWindow {
                 // #141: WHOOP-style HRV — pool RMSSD over DEEP-stage 5-min windows only (slow-wave sleep),
                 // instead of the whole-night mean. Reuses the SAME sessionHrvWindows the HRV trace is built

@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandAnalytics
 import StrandDesign
+import WhoopProtocol
 import WhoopStore
 
 /// One resolved vital-sign tile: the latest value across the source precedence, banded against the
@@ -105,18 +106,23 @@ enum BodyVitalSigns {
     /// Preview/test convenience: wrap plain rows (optionally a separate "today") as local-cache rows.
     static func readings(days: [DailyMetric],
                          today: DailyMetric?,
-                         temperatureUnit: TemperatureUnit) -> [BodyVitalReading] {
+                         temperatureUnit: TemperatureUnit,
+                         strapFamily: DeviceFamily? = nil) -> [BodyVitalReading] {
         var sourceRows = days.map { SourcedDailyMetric(metric: $0, source: .localCache) }
         if let today, !days.contains(where: { $0.day == today.day }) {
             sourceRows.append(SourcedDailyMetric(metric: today, source: .localCache))
         }
-        return readings(sourceRows: sourceRows, temperatureUnit: temperatureUnit)
+        return readings(sourceRows: sourceRows, temperatureUnit: temperatureUnit, strapFamily: strapFamily)
     }
 
     static func readings(sourceRows: [SourcedDailyMetric],
                          temperatureUnit: TemperatureUnit,
-                         now: Date = Date()) -> [BodyVitalReading] {
+                         now: Date = Date(),
+                         strapFamily: DeviceFamily? = nil) -> [BodyVitalReading] {
         let logicalDay = logicalDayKey(now)
+        // WHOOP 5/MG never banks a calibrated SpO₂ % over BLE, and has no v24 red/IR raw ADC either.
+        // Captions must say so; the Raw SpO₂ tile is 4.0-only so it is omitted on a 5/MG active strap.
+        let isWhoop5 = strapFamily == .whoop5
 
         // Resolve one metric to a per-day series, taking the FIRST source (by precedence) that carries
         // a value for each day — imported wins over computed wins over Apple, per `vitalPrecedence`.
@@ -234,9 +240,15 @@ enum BodyVitalSigns {
                 metricColor: StrandPalette.metricCyan,
                 day: spo2Row?.day,
                 source: spo2Row?.source,
-                missingCaption: String(localized: "No SpO₂ import or Health value"),
+                // WHOOP 5/MG: no honest % on the BLE wire — only CSV import / Apple Health can fill this.
+                missingCaption: isWhoop5
+                    ? String(localized: "Not on BLE for WHOOP 5.0 — import CSV or Apple Health")
+                    : String(localized: "No SpO₂ import or Health value"),
                 sparkline: trail(spo2Points)
             ),
+            // Raw SpO₂ ADC is WHOOP 4.0 v24 only (#93). Omit the tile on a 5/MG so the empty ADC tile
+            // does not look like a decode bug.
+            ] + (isWhoop5 ? [] : [
             BodyVitalReading(
                 key: "spo2raw",
                 label: String(localized: "Raw SpO₂"),
@@ -259,6 +271,7 @@ enum BodyVitalSigns {
                 missingCaption: String(localized: "No raw SpO₂ decode for the night"),
                 sparkline: trail(spo2rawPoints)
             ),
+            ]) + [
             BodyVitalReading(
                 key: "rhr",
                 label: String(localized: "Resting HR"),
@@ -292,7 +305,10 @@ enum BodyVitalSigns {
                 metricColor: StrandPalette.metricPurple,
                 day: hrvRow?.day,
                 source: hrvRow?.source,
-                missingCaption: String(localized: "No HRV value"),
+                // On WHOOP 5/MG overnight HRV may come from sparse PPG bursts when GOOD windows exist.
+                missingCaption: isWhoop5
+                    ? String(localized: "No overnight HRV yet (needs sleep + PPG bursts)")
+                    : String(localized: "No HRV value"),
                 sparkline: trail(hrvPoints)
             ),
             BodyVitalReading(

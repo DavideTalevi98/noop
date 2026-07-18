@@ -84,6 +84,7 @@ class DeviceRegistryTest {
         override suspend fun deleteGravityFor(deviceId: String) { deletedTables += "gravitySample" to deviceId }
         override suspend fun deleteStepsFor(deviceId: String) { deletedTables += "stepSample" to deviceId }
         override suspend fun deletePpgHrFor(deviceId: String) { deletedTables += "ppgHrSample" to deviceId }
+        override suspend fun deletePpgSpotHrvFor(deviceId: String) { deletedTables += "ppgSpotHrvSample" to deviceId }
         override suspend fun deleteEventsFor(deviceId: String) { deletedTables += "event" to deviceId }
         override suspend fun deleteBatteryFor(deviceId: String) { deletedTables += "battery" to deviceId }
         override suspend fun deleteDailyMetricsFor(deviceId: String) { deletedTables += "dailyMetric" to deviceId }
@@ -196,7 +197,7 @@ class DeviceRegistryTest {
         // The same 17 device-scoped tables the Swift store clears, each targeted with "apple-health".
         val expectedTables = setOf(
             "hrSample", "rrInterval", "spo2Sample", "skinTempSample", "respSample", "gravitySample",
-            "stepSample", "ppgHrSample", "event", "battery", "dailyMetric", "sleepSession",
+            "stepSample", "ppgHrSample", "ppgSpotHrvSample", "event", "battery", "dailyMetric", "sleepSession",
             "journal", "workout", "appleDaily", "metricSeries", "dayOwnership",
         )
         assertEquals(expectedTables, dao.deletedTables.map { it.first }.toSet())

@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 
 /// NOOP — Health Monitor.
@@ -1187,15 +1188,22 @@ private struct VitalsSection: View {
     // toggle re-labels it to °F. Display-only — banding still runs on the stored °C value.
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
+    /// Persisted strap picker — SpO₂ honesty copy + hide 4.0-only Raw SpO₂ on a 5/MG.
+    @AppStorage("selectedWhoopModel") private var selectedWhoopModelRaw = WhoopModel.whoop4.rawValue
     private var temperatureUnit: TemperatureUnit {
         let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
         return UnitPrefs.resolveTemperature(system: system, override: temperatureRaw)
     }
 
+    private var strapFamily: DeviceFamily {
+        selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue ? .whoop5 : .whoop4
+    }
+
     var body: some View {
         let readings = BodyVitalSigns.readings(
             sourceRows: repo.vitalMetricRows,
-            temperatureUnit: temperatureUnit
+            temperatureUnit: temperatureUnit,
+            strapFamily: strapFamily
         )
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Vital Signs", overline: "Latest", trailing: BodyVitalSigns.latestDayLabel(readings))

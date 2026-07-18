@@ -173,6 +173,18 @@ extension WhoopStore {
                     try stmt.execute(arguments: [deviceId, s.ts, s.bpm, s.conf])
                 }
             }
+            // Spot HRV from v26 PPG bursts. Persist-only (not in the 8-field return tuple). ON CONFLICT
+            // DO NOTHING keeps the first estimate for a burst start ts.
+            if !streams.ppgSpotHrv.isEmpty {
+                let stmt = try db.cachedStatement(sql: """
+                    INSERT INTO ppgSpotHrvSample (deviceId, ts, rmssdMs, hrBpm, beats, quality)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(deviceId, ts) DO NOTHING
+                    """)
+                for s in streams.ppgSpotHrv {
+                    try stmt.execute(arguments: [deviceId, s.ts, s.rmssdMs, s.hrBpm, s.beats, s.quality])
+                }
+            }
             return (hr, rr, ev, bat, spo2, skin, resp, grav)
         }
     }
@@ -393,6 +405,23 @@ extension WhoopStore {
 
     public func ppgHrCountForTest() async throws -> Int {
         try syncRead { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ppgHrSample") ?? 0 }
+    }
+
+    /// Spot HRV samples from v26 PPG bursts in `[from, to]` for one device, ascending by burst-start ts.
+    /// Empty on WHOOP 4.0 / no v26 offload. Each row carries quality GOOD/COARSE/POOR.
+    public func ppgSpotHrvSamples(deviceId: String, from: Int, to: Int, limit: Int = 200_000) async throws
+        -> [PpgSpotHrvSample] {
+        try syncRead { db in
+            try Row.fetchAll(db, sql: """
+                SELECT ts, rmssdMs, hrBpm, beats, quality FROM ppgSpotHrvSample
+                WHERE deviceId = ? AND ts >= ? AND ts <= ?
+                ORDER BY ts LIMIT ?
+                """, arguments: [deviceId, from, to, limit])
+                .map {
+                    PpgSpotHrvSample(ts: $0["ts"], rmssdMs: $0["rmssdMs"], hrBpm: $0["hrBpm"],
+                                     beats: $0["beats"], quality: $0["quality"])
+                }
+        }
     }
 
     public func deviceRowForTest(id: String) async throws -> (mac: String?, name: String?)? {

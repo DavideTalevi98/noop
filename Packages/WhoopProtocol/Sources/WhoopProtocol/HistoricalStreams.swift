@@ -248,6 +248,9 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     // Derive per-second HR from the collected v26 PPG bursts (issue #156). Empty when there were no v26
     // records (the WHOOP 4 / v18-only common case), so this is a no-op cost there.
     out.ppgHr = PpgHr.derivePpgHr(records: ppgRecords)
+    // Spot HRV (RMSSD) from each contiguous ≥20 s PPG burst — the packed R-R overnight path underestimates
+    // on 5/MG; GOOD-quality windows feed avgHrv when preferred over the RR mean.
+    out.ppgSpotHrv = PpgSpotHrv.derive(records: ppgRecords)
     out.droppedImplausible = droppedImplausible   // #547 diag count (not persisted, not encoded)
     return out
 }

@@ -68,6 +68,20 @@ data class PpgHrSample(
     val synced: Int = 0,
 )
 
+/**
+ * Spot HRV (RMSSD) from a contiguous WHOOP 5/MG v26 PPG burst. Sparse + 24 Hz-coarse; [quality] is
+ * GOOD/COARSE/POOR. Twin of Swift `ppgSpotHrvSample` (WhoopStore v25). PK (deviceId, ts) = burst start.
+ */
+@Entity(tableName = "ppgSpotHrvSample", primaryKeys = ["deviceId", "ts"])
+data class PpgSpotHrvSample(
+    val deviceId: String,
+    val ts: Long,
+    val rmssdMs: Double,
+    val hrBpm: Double,
+    val beats: Int,
+    val quality: String,
+)
+
 /** One downsampled HR point, the bucket's start (unix seconds) + the mean bpm over it. Query
  *  result of [WhoopDao.hrBuckets], not a table. Mirrors the macOS `HRBucket`. */
 data class HrBucket(

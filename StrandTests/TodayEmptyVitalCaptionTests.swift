@@ -12,6 +12,14 @@ final class TodayEmptyVitalCaptionTests: XCTestCase {
 
     func testToday_isTheAfterTonightCopy() {
         XCTAssertEqual(TodayView.emptyVitalCaption(unit: "ms", isToday: true), "After tonight's sleep")
+        XCTAssertEqual(
+            TodayView.emptyVitalCaption(unit: "SpO₂", isToday: true, bloodOxygenUnavailableOverBle: true),
+            "Not on BLE — import CSV or Apple Health"
+        )
+        XCTAssertEqual(
+            TodayView.emptyVitalCaption(unit: "SpO₂", isToday: false, bloodOxygenUnavailableOverBle: true),
+            "Not on BLE — import CSV or Apple Health"
+        )
     }
 
     func testToday_copyIsUnitIndependent() {

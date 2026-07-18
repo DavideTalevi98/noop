@@ -43,12 +43,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DismissedSleep::class,
         AppleDaily::class,
         PpgHrSample::class,
+        PpgSpotHrvSample::class,
         PairedDeviceRow::class,
         DayOwnershipRow::class,
         LabMarkerRow::class,
         LiveSessionRow::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 abstract class WhoopDatabase : RoomDatabase() {
@@ -65,7 +66,7 @@ abstract class WhoopDatabase : RoomDatabase() {
          * and a WhoopDatabaseChainTest update — the test enforces the chain is contiguous up to
          * (DB_VERSION - 1) so a gap will fail CI before it reaches a user device.
          */
-        const val DB_VERSION = 18
+        const val DB_VERSION = 19
 
         @Volatile
         private var instance: WhoopDatabase? = null
@@ -490,6 +491,23 @@ abstract class WhoopDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v18 -> v19: ADDITIVE, spot HRV from WHOOP 5/MG v26 PPG bursts (Swift WhoopStore v25 twin).
+         * Column order must match [PpgSpotHrvSample] field order for Room. Exposed for plain-JVM pin tests.
+         */
+        internal val PPG_SPOT_HRV_MIGRATION_SQL: List<String> = listOf(
+            "CREATE TABLE IF NOT EXISTS `ppgSpotHrvSample` (`deviceId` TEXT NOT NULL, " +
+                "`ts` INTEGER NOT NULL, `rmssdMs` REAL NOT NULL, `hrBpm` REAL NOT NULL, " +
+                "`beats` INTEGER NOT NULL, `quality` TEXT NOT NULL, " +
+                "PRIMARY KEY(`deviceId`, `ts`))",
+        )
+
+        internal val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (stmt in PPG_SPOT_HRV_MIGRATION_SQL) db.execSQL(stmt)
+            }
+        }
+
         private fun build(appContext: Context): WhoopDatabase =
             Room.databaseBuilder(appContext, WhoopDatabase::class.java, DB_NAME)
                 // #1014: replace ONLY the corruption handling of the default open-helper. The
@@ -505,6 +523,7 @@ abstract class WhoopDatabase : RoomDatabase() {
                     MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
                     MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
                     MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
+                    MIGRATION_18_19,
                 )
                 // #1037: a FRESH install builds the schema straight at the current version and runs NO
                 // migrations, so the MIGRATION_7_8 "my-whoop" registry seed never fires and the WHOOP,

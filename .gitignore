@@ -4,6 +4,8 @@
 .localized
 Icon?
 
+sandbox/
+
 .cursor/
 
 # ── Swift / Xcode ───────────────────────────────────────────────

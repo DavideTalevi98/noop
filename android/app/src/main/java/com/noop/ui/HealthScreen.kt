@@ -165,11 +165,14 @@ fun HealthScreen(
             item { HeartRateSection(vm = vm, hrMax = hrMax) }
             item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
             item {
+                val ctx = LocalContext.current
+                val isWhoop5 = NoopPrefs.of(ctx).getString("noop.selectedWhoopModel", null) ==
+                    com.noop.ble.WhoopModel.WHOOP5_MG.name
                 VitalsSection(
                     title = "Vital Signs",
                     overline = "Latest readings",
                     trailing = null,
-                    vitals = latestVitals(days, UnitPrefs.temperature(LocalContext.current)),
+                    vitals = latestVitals(days, UnitPrefs.temperature(ctx), isWhoop5 = isWhoop5),
                     onVitalClick = onVitalClick,
                     captionMode = VitalCaptionMode.AS_OF,
                 )
@@ -1092,8 +1095,13 @@ fun VitalSignsScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
     val selectedDayKey = remember(selectedDay) { selectedDay.toString() }
     val selectedMetric = remember(days, selectedDayKey) { days.lastOrNull { it.day == selectedDayKey } }
     val tempUnit = UnitPrefs.temperature(LocalContext.current)
-    val vitals = remember(selectedMetric, days, tempUnit) {
-        selectedMetric?.let { vitalsFor(it, days, tempUnit) }.orEmpty()
+    val context = LocalContext.current
+    val isWhoop5 = remember {
+        NoopPrefs.of(context).getString("noop.selectedWhoopModel", null) ==
+            com.noop.ble.WhoopModel.WHOOP5_MG.name
+    }
+    val vitals = remember(selectedMetric, days, tempUnit, isWhoop5) {
+        selectedMetric?.let { vitalsFor(it, days, tempUnit, isWhoop5 = isWhoop5) }.orEmpty()
     }
 
     ScreenScaffold(
@@ -1593,6 +1601,8 @@ private data class Vital(
     /** Trailing values (oldest → newest) for the tile's metric-tinted sparkline trail, matching
      *  Today's Key-Metrics tiles. Presentation-only; defaulted so existing call sites compile. */
     val sparkline: List<Double> = emptyList(),
+    /** Optional honest empty-state line (e.g. WHOOP 5/MG SpO₂ not on BLE). Overrides "No data". */
+    val emptyCaption: String? = null,
 ) {
     /** Value with its unit appended, or null when no data. */
     val formattedValue: String? = value?.let { "${format(it)} $unit" }
@@ -1611,7 +1621,7 @@ private data class Vital(
         // Raw SpO₂ is a device-dependent ADC, not a clinical value — never claim an in/out-of-range
         // judgment. Show a plain "uncalibrated" note when a value decoded, "No data" otherwise. (#93)
         key == "spo2raw" -> if (banding.band == VitalBands.Band.NO_DATA) "No data" else "Uncalibrated"
-        banding.band == VitalBands.Band.NO_DATA -> "No data"
+        banding.band == VitalBands.Band.NO_DATA -> emptyCaption ?: "No data"
         banding.basis == VitalBands.Basis.PERSONAL ->
             if (banding.band == VitalBands.Band.IN_RANGE) "In your range" else "Off your baseline"
         else ->
@@ -1630,11 +1640,13 @@ private enum class VitalCaptionMode {
 }
 
 /** Build the vitals, banded against the user's OWN trailing baseline once 14 trusted
- *  nights exist (population ranges before that — VitalBands does the deciding). */
+ *  nights exist (population ranges before that — VitalBands does the deciding).
+ *  [isWhoop5]: active strap is 5/MG — hide the 4.0-only Raw SpO₂ tile and use honest SpO₂ empty copy. */
 private fun vitalsFor(
     d: DailyMetric?,
     days: List<DailyMetric>,
     tempUnit: TemperatureUnit = TemperatureUnit.CELSIUS,
+    isWhoop5: Boolean = false,
 ): List<Vital> {
     val todayKey = d?.day
     // History strictly before the displayed day, oldest→newest (recentDays is already
@@ -1739,7 +1751,13 @@ private fun vitalsFor(
             banding = VitalBands.band(d?.spo2Pct, emptyList(), 95.0..100.0, null),
             metricColor = Palette.metricCyan,
             sparkline = trail(d?.spo2Pct) { it.spo2Pct },
+            emptyCaption = if (isWhoop5) {
+                "Not on BLE for WHOOP 5.0 — import CSV or Apple Health"
+            } else {
+                null
+            },
         ),
+    ) + (if (isWhoop5) emptyList() else listOf(
         Vital(
             // Issue #93: WHOOP 4.0 raw SpO₂ PPG ADC mean (red+IR)/2 per night. NOT a calibrated
             // blood-oxygen % — that needs WHOOP's proprietary curve. Shown as RAW ADC so users can SEE
@@ -1756,6 +1774,7 @@ private fun vitalsFor(
             metricColor = Palette.metricCyan,
             sparkline = trail(d?.let(spo2RawMean)) { spo2RawMean(it) },
         ),
+    )) + listOf(
         Vital(
             key = "rhr", label = "Resting HR", unit = "bpm",
             value = d?.restingHr?.toDouble(), format = { it.roundToInt().toString() },
@@ -2127,16 +2146,28 @@ private fun RecentDaySelectorBar(selectedOffset: Int, onSelect: (Int) -> Unit) {
     ThreeDaySelectorBar(selectedOffset = selectedOffset, onSelect = onSelect)
 }
 
-private fun latestVitals(days: List<DailyMetric>, tempUnit: TemperatureUnit): List<Vital> {
-    val emptyByKey = vitalsFor(null, days, tempUnit).associateBy { it.key }
-    return listOf(
-        latestVital("resp", days, tempUnit, emptyByKey) { it.respRateBpm != null },
-        latestVital("spo2", days, tempUnit, emptyByKey) { it.spo2Pct != null },
-        latestVital("spo2raw", days, tempUnit, emptyByKey) { it.spo2Red != null && it.spo2Ir != null },
-        latestVital("rhr", days, tempUnit, emptyByKey) { it.restingHr != null },
-        latestVital("hrv", days, tempUnit, emptyByKey) { it.avgHrv != null },
-        latestVital("skin", days, tempUnit, emptyByKey) { it.skinTempDevC != null },
-    )
+private fun latestVitals(
+    days: List<DailyMetric>,
+    tempUnit: TemperatureUnit,
+    isWhoop5: Boolean = false,
+): List<Vital> {
+    val emptyByKey = vitalsFor(null, days, tempUnit, isWhoop5 = isWhoop5).associateBy { it.key }
+    val keys = buildList {
+        add("resp"); add("spo2")
+        if (!isWhoop5) add("spo2raw")
+        add("rhr"); add("hrv"); add("skin")
+    }
+    return keys.map { key ->
+        val hasValue: (DailyMetric) -> Boolean = when (key) {
+            "resp" -> { it -> it.respRateBpm != null }
+            "spo2" -> { it -> it.spo2Pct != null }
+            "spo2raw" -> { it -> it.spo2Red != null && it.spo2Ir != null }
+            "rhr" -> { it -> it.restingHr != null }
+            "hrv" -> { it -> it.avgHrv != null }
+            else -> { it -> it.skinTempDevC != null }
+        }
+        latestVital(key, days, tempUnit, emptyByKey, isWhoop5, hasValue)
+    }
 }
 
 private fun latestVital(
@@ -2144,11 +2175,14 @@ private fun latestVital(
     days: List<DailyMetric>,
     tempUnit: TemperatureUnit,
     emptyByKey: Map<String, Vital>,
+    isWhoop5: Boolean,
     hasValue: (DailyMetric) -> Boolean,
 ): Vital {
     val row = days.asReversed().firstOrNull(hasValue)
     return row
-        ?.let { latestRow -> vitalsFor(latestRow, days, tempUnit).firstOrNull { it.key == key } }
+        ?.let { latestRow ->
+            vitalsFor(latestRow, days, tempUnit, isWhoop5 = isWhoop5).firstOrNull { it.key == key }
+        }
         ?.copy(asOfLabel = asOfLabel(row.day))
         ?: emptyByKey.getValue(key)
 }

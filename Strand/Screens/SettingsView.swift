@@ -1363,10 +1363,30 @@ struct SettingsView: View {
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
-                Text("Saves every raw 5/MG frame (with a timestamp and the live heart rate) to a JSON file you can share to help map the biometric layout. This only records frames the strap already sent (it never writes to your strap), so it is safe to leave on. Export the file and attach it to a protocol-mapping issue.")
+                Text("Saves every raw 5/MG frame — including historical offload — with a timestamp and the live heart rate to a JSON file you can share to help map the biometric layout. This only records frames the strap already sent (it never writes to your strap), so it is safe to leave on. Export the file and attach it to a protocol-mapping issue. A full night can be several MB; oldest captures are trimmed past ~50 MB.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Disk inventory (all launches), not just this session — otherwise a prior offload's
+                // multi-MB file stays invisible after relaunch while Export raw+log only offers the
+                // tiny current session.
+                let disk = PuffinFrameRecorder.diskInventory()
+                if disk.count > 0 {
+                    let mb = Double(disk.bytes) / 1_048_576.0
+                    Text(disk.count == 1
+                         ? String(localized: "1 capture on disk (\(String(format: "%.1f", mb)) MB).")
+                         : String(localized: "\(disk.count) captures on disk (\(String(format: "%.1f", mb)) MB)."))
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    NoopButton("Export all puffin captures…", systemImage: "square.and.arrow.up.on.square", kind: .primary) {
+                        exportAllPuffinCaptures()
+                    }
+                    Text("Zips every saved capture (including previous app launches), not only this session. Use this for protocol RE.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if live.puffinCaptureCount > 0 {
                     Text(live.puffinCaptureCount == 1
@@ -1375,7 +1395,7 @@ struct SettingsView: View {
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textSecondary)
                     HStack(spacing: NoopMetrics.space3) {
-                        NoopButton("Export frames…", systemImage: "square.and.arrow.up", kind: .primary) {
+                        NoopButton("Export this session…", systemImage: "square.and.arrow.up", kind: .secondary) {
                             exportPuffinCaptures()
                         }
 
@@ -1392,7 +1412,7 @@ struct SettingsView: View {
                     NoopButton("Export raw + log", systemImage: "square.and.arrow.up.on.square", kind: .secondary) {
                         exportRawAndLog()
                     }
-                    Text("Saves the raw capture and the strap log together as a matched pair. Attach both to a protocol-mapping issue.")
+                    Text("Saves this session's capture and the strap log together as a matched pair.")
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1612,6 +1632,37 @@ struct SettingsView: View {
         #else
         FileExport.exportFile(at: src, suggestedName: suggested)
         #endif
+    }
+
+    /// Zip every on-disk `puffin-*.json` (all app launches) into one shareable archive. The session-only
+    /// export left prior offloads stranded when the user relaunched before tapping Export.
+    private func exportAllPuffinCaptures() {
+        model.ble.flushPuffinCaptures()
+        let urls = PuffinFrameRecorder.allCaptureURLs()
+        guard !urls.isEmpty else {
+            backupAlertTitle = String(localized: "Nothing to export")
+            backupAlertMessage = String(localized: "No puffin capture files on disk yet.")
+            showBackupAlert = true
+            return
+        }
+        var entries: [FileExport.BundleEntry] = []
+        entries.reserveCapacity(urls.count)
+        for url in urls {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            entries.append(FileExport.BundleEntry(name: url.lastPathComponent, data: data))
+        }
+        guard !entries.isEmpty else {
+            backupAlertTitle = String(localized: "Export failed")
+            backupAlertMessage = String(localized: "Couldn't read the capture files.")
+            showBackupAlert = true
+            return
+        }
+        let zipName = FileExport.timestampedName("noop-puffin-captures", ext: "zip")
+        if FileExport.exportBundle(entries: entries, suggestedName: zipName) == nil {
+            backupAlertTitle = String(localized: "Export failed")
+            backupAlertMessage = String(localized: "Couldn't build the capture zip.")
+            showBackupAlert = true
+        }
     }
 
     /// One-tap matched-pair export (#510): export the raw puffin capture AND the strap log together,

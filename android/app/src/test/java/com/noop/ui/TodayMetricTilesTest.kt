@@ -154,8 +154,20 @@ class TodayMetricTilesTest {
 
     @Test
     fun buildingHint_bloodOxygen_today_buildsLikeTheOtherOvernightVitals() {
-        // H10: the overnight SpO₂ fills in from sleep, like Rest.
+        // H10: the overnight SpO₂ fills in from sleep, like Rest (WHOOP 4.0 / import path).
         assertEquals("Building, wear it tonight", buildingHint(KeyMetric.BLOOD_OXYGEN, isToday = true))
+    }
+
+    @Test
+    fun buildingHint_bloodOxygen_whoop5_saysNotOnBle() {
+        assertEquals(
+            "Not on BLE — import CSV or Apple Health",
+            buildingHint(KeyMetric.BLOOD_OXYGEN, isToday = true, bloodOxygenUnavailableOverBle = true),
+        )
+        assertEquals(
+            "Not on BLE — import CSV or Apple Health",
+            buildingHint(KeyMetric.BLOOD_OXYGEN, isToday = false, bloodOxygenUnavailableOverBle = true),
+        )
     }
 
     @Test

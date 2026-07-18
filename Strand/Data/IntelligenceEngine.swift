@@ -532,6 +532,8 @@ final class IntelligenceEngine: ObservableObject {
                 // #93: WHOOP 4.0 raw SpO2 PPG samples for the night; analyzeDay banks the nightly red/IR ADC
                 // means on the DailyMetric. Empty on a 5/MG (no v24 spo2 channels) → the raw means stay nil.
                 let spo2 = (try? await store.spo2Samples(deviceId: owner, from: from, to: to, limit: 200_000)) ?? []
+                // Spot HRV from v26 PPG bursts (5/MG). Empty on 4.0 / no bursts → analyzeDay keeps the RR path.
+                let ppgSpotHrv = (try? await store.ppgSpotHrvSamples(deviceId: owner, from: from, to: to)) ?? []
                 // #938: the strap family that WROTE this owner's skin-temp rows, so analyzeDay converts the raw
                 // register on the right scale (5/MG banks centidegrees, a WHOOP 4.0 v24 banks a raw ADC). The
                 // registry knows each device's model; unknown/non-WHOOP owners fall back to `.whoop5` (the prior
@@ -657,7 +659,8 @@ final class IntelligenceEngine: ObservableObject {
                                                      // (dayStart == today's local midnight), so the 5000-line
                                                      // ring buffer isn't flooded; every night keeps the summary.
                                                      hrvWindowDetail: dayStart == nowLocalMidnight,
-                                                     deepHrvWindow: deepHrvWindow)
+                                                     deepHrvWindow: deepHrvWindow,
+                                                     ppgSpotHrv: ppgSpotHrv)
                 // #195: whole-night HRV cleaning-pipeline summary for the always-on strap log, so a "reads ~2x
                 // too high" report is triageable without the HRV test mode: RMSSD vs SDNN (rmssd >> sdnn =
                 // beat-to-beat jitter surviving the ectopic filter, not real HRV), meanNN as an HR sanity-check,

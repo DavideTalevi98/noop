@@ -5,6 +5,7 @@ import com.noop.data.EventEntry
 import com.noop.data.GravityRow
 import com.noop.data.HrRow
 import com.noop.data.PpgHrRow
+import com.noop.data.PpgSpotHrvRow
 import com.noop.data.RespRow
 import com.noop.data.RrRow
 import com.noop.data.SkinTempRow
@@ -702,12 +703,22 @@ fun extractHistoricalStreams(
     // Derive HR from the accumulated v26 PPG waveform (8 s / 24 Hz autocorrelation, conf>=0.3). Empty
     // unless the strap sent v26 records; falls back gracefully (no rows) on noise (#156).
     val ppgHr = PpgHr.estimate(ppgSamples).map { PpgHrRow(ts = it.ts, bpm = it.bpm, conf = it.conf) }
+    // Spot HRV from contiguous ≥20 s PPG bursts (same samples, grouped by second).
+    val bySec = LinkedHashMap<Long, ArrayList<Int>>()
+    for (s in ppgSamples) {
+        bySec.getOrPut(s.ts) { ArrayList() }.add(s.value)
+    }
+    val ppgRecords = bySec.map { (ts, vals) -> ts to vals.toIntArray() }
+    val ppgSpotHrv = PpgSpotHrv.derive(ppgRecords).map {
+        PpgSpotHrvRow(ts = it.ts, rmssdMs = it.rmssdMs, hrBpm = it.hrBpm, beats = it.beats, quality = it.quality)
+    }
 
     return StreamBatch(
         hr = hr, rr = rr, events = events, battery = battery,
         spo2 = spo2, skinTemp = skinTemp, resp = resp, gravity = gravity, steps = steps,
         sleepState = sleepState,
         ppgHr = ppgHr,
+        ppgSpotHrv = ppgSpotHrv,
         droppedImplausibleTs = droppedImplausible,
     )
 }
