@@ -81,6 +81,12 @@ secrets.*
 # Personal Apple Team / bundle / App Group / device UDIDs for local iOS builds.
 # Use Tools/signing.local.env.example → signing.local.env + Tools/apply-local-signing.sh.
 signing.local.env
+**/signing.local.env
+# Apple / Android credential material that must never land in a public clone.
+*.mobileprovision
+*.p12
+*.cer
+AuthKey_*.p8
 android/local.properties
 android/keystore.properties
 android/noop-release.jks
